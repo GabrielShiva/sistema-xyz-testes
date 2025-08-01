@@ -36,12 +36,10 @@ pico_sdk_init()
 # Add executable. Default name is the project name, version 0.1
 
 add_executable(controle_motor
-    first_stepper_test.c
-    # rampa.c
+    # first_stepper_test.c
+    linear_accel_blocking.c
     # set_rpm.c
-    # test_acceleration_1.c
     # test_acceleration_2.c
-    # test_accel_3.c
 )
 
 pico_set_program_name(controle_motor "controle_motor")
@@ -53,7 +51,8 @@ pico_enable_stdio_usb(controle_motor 1)
 
 # Add the standard library to the build
 target_link_libraries(controle_motor
-        pico_stdlib)
+        pico_stdlib
+        hardware_timer)
 
 # Add the standard include files to the build
 target_include_directories(controle_motor PRIVATE
