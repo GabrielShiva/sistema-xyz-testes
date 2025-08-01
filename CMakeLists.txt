@@ -35,7 +35,14 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(controle_motor main.c )
+add_executable(controle_motor
+    first_stepper_test.c
+    # rampa.c
+    # set_rpm.c
+    # test_acceleration_1.c
+    # test_acceleration_2.c
+    # test_accel_3.c
+)
 
 pico_set_program_name(controle_motor "controle_motor")
 pico_set_program_version(controle_motor "0.1")
@@ -54,8 +61,8 @@ target_include_directories(controle_motor PRIVATE
 )
 
 # Add any user requested libraries
-target_link_libraries(controle_motor 
-        
+target_link_libraries(controle_motor
+
         )
 
 pico_add_extra_outputs(controle_motor)
