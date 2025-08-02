@@ -83,30 +83,12 @@ int main() {
     while (true) {
         // Phase 1: 3 rev CW
         gpio_put(DIR_PIN, CW);
-        state.steps_remaining = steps_per_rev * 3;
+        state.steps_remaining = steps_per_rev * 5;
         add_repeating_timer_us(interval, step_callback, &state, &timer);
         while (state.steps_remaining) tight_loop_contents();
         cancel_repeating_timer(&timer);
 
-        sleep_ms(1000);
-
-        // Phase 2: 2 rev CCW
-        gpio_put(DIR_PIN, CCW);
-        state.steps_remaining = steps_per_rev * 2;
-        add_repeating_timer_us(interval, step_callback, &state, &timer);
-        while (state.steps_remaining) tight_loop_contents();
-        cancel_repeating_timer(&timer);
-
-        sleep_ms(1000);
-
-        // Phase 3: 1 rev CW
-        gpio_put(DIR_PIN, CW);
-        state.steps_remaining = steps_per_rev;
-        add_repeating_timer_us(interval, step_callback, &state, &timer);
-        while (state.steps_remaining) tight_loop_contents();
-        cancel_repeating_timer(&timer);
-
-        sleep_ms(2000);  // pause before next cycle
+        sleep_ms(2000);
     }
 
     return 0;
