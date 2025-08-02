@@ -38,7 +38,9 @@ pico_sdk_init()
 add_executable(controle_motor
     # first_stepper_test.c
     # linear_accel_blocking.c
-    run_motor_with_timer.c
+    # run_motor_with_timer.c
+    # linear_accel_timer.c
+    homing.c
     # set_rpm.c
     # test_acceleration_2.c
 )
@@ -52,8 +54,10 @@ pico_enable_stdio_usb(controle_motor 1)
 
 # Add the standard library to the build
 target_link_libraries(controle_motor
-        pico_stdlib
-        hardware_timer)
+    pico_stdlib
+    hardware_timer
+    hardware_irq
+)
 
 # Add the standard include files to the build
 target_include_directories(controle_motor PRIVATE

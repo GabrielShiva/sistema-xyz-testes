@@ -40,6 +40,7 @@
     "files.associations": {
         "cstdint": "c",
         "compare": "c",
-        "format": "c"
+        "format": "c",
+        "cstdlib": "c"
     }
 }
