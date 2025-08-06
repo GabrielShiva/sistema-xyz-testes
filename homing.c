@@ -2,9 +2,9 @@
 #include "pico/stdlib.h"
 #include <math.h>
 
-#define STEP_PIN   21  // STEP pin to A4988
-#define DIR_PIN    20  // DIR pin to A4988
-#define LIMIT_PIN  16  // Limit switch input (normally open, active LOW)
+#define STEP_PIN   1  // STEP pin to A4988
+#define DIR_PIN    0  // DIR pin to A4988
+#define LIMIT_PIN  7  // Limit switch input (normally open, active LOW)
 
 #define CW  1
 #define CCW 0

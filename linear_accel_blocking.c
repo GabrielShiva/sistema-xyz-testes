@@ -2,12 +2,12 @@
 #include "pico/stdlib.h"
 #include <math.h>
 
-#define STEP_PIN  21  // pino STEP
-#define DIR_PIN   20  // pino DIR
-#define BTN_CONTROL 16 // Inicia/Para movimento
+#define STEP_PIN  1  // pino STEP
+#define DIR_PIN   0  // pino DIR
+#define BTN_CONTROL 7 // Inicia/Para movimento
 
-#define CW 1
-#define CCW 0
+#define CW 0
+#define CCW 1
 
 #define SPR 48 // passos por revolução (360 / 7.5)
 #define MICROSTEPS 768
@@ -122,7 +122,7 @@ int main() {
     const uint64_t pulse_delay_us = (uint64_t)(((1.0f / 48.0f) / 16.0f) / 2.0f * 1e6f); // 651 us
 
     mov_state = false;
-    gpio_put(DIR_PIN, 1);
+    gpio_put(DIR_PIN, CW);
 
     while(true) {
         if (mov_state) {

@@ -10,9 +10,9 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
 
-#define STEP_PIN  21  // pino STEP
-#define DIR_PIN   20  // pino DIR
-#define BTN_CONTROL 16 // Inicia/Para movimento
+#define STEP_PIN  1  // pino STEP
+#define DIR_PIN   0  // pino DIR
+#define BTN_CONTROL 7 // Inicia/Para movimento
 
 #define CW 1
 #define CCW 0

@@ -143,40 +143,20 @@ int main() {
     c0 = 6200;          // 6400 us
 
     sleep_ms(4000);
-    printf("Comecou !!!\n");
 
     while (true) {
-        move_to_position(1600, true);
-        move_to_position(-1600, true);
-        move_to_position(0, true);
+        printf("Comecou movimento...\n");
 
-        move_to_position(200, true);
-        move_to_position(400, true);
-        move_to_position(600, true);
-        move_to_position(800, true);
+        move_to_position(9216, false);
 
-        move_to_position(400, true);
-        move_to_position(600, true);
-        move_to_position(200, true);
-        move_to_position(400, true);
-        move_to_position(0, true);
+        int county = 0;
+        while (!movement_done) {
+            printf("contador = %d\n", county);
+            county++;
+            sleep_ms(500);
+        }
 
-        max_speed = 600;
-        move_to_position(200, true);
-        move_to_position(400, true);
-
-        max_speed = 400;
-        move_to_position(600, true);
-        move_to_position(800, true);
-
-        max_speed = 200;
-        move_to_position(1000, true);
-        move_to_position(1200, true);
-
-        max_speed = 10;
-        move_to_position(0, true);
-
-        printf("Fim\n");
+        printf("Terminou movimento...\n");
 
         while(true);
     }
