@@ -61,7 +61,7 @@ void btn_irq(uint gpio, uint32_t events) {
 void const_accel(bool is_accel) {
     uint64_t delays[MICROSTEPS];
     float angle = 1.0f;
-    float accel = 0.01f;
+    float accel = 0.05f;
     float c0 = 2000.0f * sqrtf(2.0f * angle / accel) * 0.67703f; //19149
     float lastDelay = 0.0f;
     int highSpeed = 300;
@@ -82,7 +82,6 @@ void const_accel(bool is_accel) {
     }
 
     if (is_accel) {
-        // use delays from the array, forward
         for (int i = 0; i < MICROSTEPS; i++) {
             gpio_put(STEP_PIN, 1);
             sleep_us(delays[i]);
@@ -90,7 +89,6 @@ void const_accel(bool is_accel) {
             sleep_us(delays[i]);
         }
     } else {
-        // use delays from the array, backward
         for (int i = 0; i < MICROSTEPS; i++) {
             gpio_put(STEP_PIN, 1);
             sleep_us(delays[MICROSTEPS - i - 1]);

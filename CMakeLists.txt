@@ -38,10 +38,9 @@ pico_sdk_init()
 add_executable(controle_motor
     # first_stepper_test.c
     # linear_accel_blocking.c
+    linear_accel_timer.c
     # run_motor_with_timer.c
-    # linear_accel_timer.c
-    homing.c
-    # set_rpm.c
+    # homing.c
     # test_acceleration_2.c
 )
 
