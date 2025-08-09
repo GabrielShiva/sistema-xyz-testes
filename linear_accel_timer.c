@@ -5,8 +5,10 @@
 #include "hardware/timer.h"
 #include "hardware/irq.h"
 
-#define STEP_PIN  1  // pino STEP
-#define DIR_PIN   0  // pino DIR
+// #define STEP_PIN  1  // pino STEP
+// #define DIR_PIN   0  // pino DIR
+#define STEP_PIN  16  // pino STEP
+#define DIR_PIN   17  // pino DIR
 #define LED_PIN   25
 
 #define MS1_PIN 13

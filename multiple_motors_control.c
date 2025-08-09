@@ -7,6 +7,8 @@
 #include "hardware/irq.h"
 #include "hardware/timer.h"
 
+#define LED_PIN   25
+
 // Estrutura que representa o motor de passo
 typedef struct {
     // pinos de controle
@@ -48,20 +50,20 @@ stepper_motor_t steppers[3] = {
     },
     // Motor 2
     {
-        .dir_pin = 2,
-        .step_pin = 3,
+        .dir_pin = 17,
+        .step_pin = 16,
         .ms1_pin = 13,
         .ms2_pin = 14,
         .ms3_pin = 15,
     },
-    // Motor 3
-    {
-        .dir_pin = 4,
-        .step_pin = 5,
-        .ms1_pin = 13,
-        .ms2_pin = 14,
-        .ms3_pin = 15,
-    },
+    // // Motor 3
+    // {
+    //     .dir_pin = 4,
+    //     .step_pin = 5,
+    //     .ms1_pin = 13,
+    //     .ms2_pin = 14,
+    //     .ms3_pin = 15,
+    // },
 };
 
 // Declaração de funções
@@ -69,26 +71,53 @@ int64_t alarm_irq_handler(alarm_id_t id, void *user_data);
 void init_stepper_motor(stepper_motor_t *motor);
 void move_n_steps(stepper_motor_t *motor, int32_t steps);
 void move_to_position(stepper_motor_t *motor, int32_t target, bool wait);
+bool led_callback(repeating_timer_t *rt);
 
 
 // Função principal
 int main (void) {
     stdio_init_all();
 
+    gpio_init(LED_PIN); gpio_set_dir(LED_PIN, GPIO_OUT); gpio_put(LED_PIN, 0);
+
+    repeating_timer_t led_timer;
+
     // Inicializa os motores
-    for (uint i = 0; i < 3; i++) {
+    for (uint i = 0; i < 2; i++) {
         init_stepper_motor(&steppers[i]);
     }
 
-    sleep_ms(500);
+    const int MOTOR_STEPS = 48;
+    int32_t steps_per_rev = MOTOR_STEPS * 16; // 768 passos/rev
+
+    // steppers[0].initial_step_interval = 4000.0f; // 4 ms entre passos no início
+    // steppers[0].max_speed             = 1000;    // não acelera além de 1 ms por passo
+
+    // steppers[1].initial_step_interval = 7000.0f; // mais lento no início
+    // steppers[1].max_speed             = 500;    // limite mais lento para este motor
+
+    // Cria instância do timer para o LED
+    add_repeating_timer_ms(500, led_callback, NULL, &led_timer);
+
+    sleep_ms(5000);
     printf("Iniciando demo para 3 motores...\n");
 
     while (true) {
-        move_to_position(&steppers[0], 768, false);
-        move_to_position(&steppers[1], 2304, false);
-        move_to_position(&steppers[2], 1536, false);
+        move_to_position(&steppers[0], steps_per_rev * 5, false);
+        move_to_position(&steppers[1], steps_per_rev * 2, false);
+        // move_to_position(&steppers[2], 1536, false);
 
-        while (!(steppers[0].movement_done && steppers[1].movement_done && steppers[2].movement_done)) {
+        // while (!(steppers[0].movement_done && steppers[1].movement_done)) {
+        //     tight_loop_contents();
+        // }
+
+        while(!steppers[1].movement_done) {
+            tight_loop_contents();
+        }
+
+        move_to_position(&steppers[1], -steps_per_rev * 2, false);
+
+        while(!(steppers[0].movement_done && steppers[1].movement_done)) {
             tight_loop_contents();
         }
 
@@ -150,11 +179,10 @@ int64_t alarm_irq_handler(alarm_id_t id, void *user_data) {
     }
 }
 
-void move_to_position(stepper_motor_t *motor, int32_t target, bool wait) {
-    move_n_steps(motor, target - (int32_t)motor->step_position);
-    if (wait) {
-        while (!motor->movement_done);
-    }
+// função de callback para o LED ficar piscando
+bool led_callback(repeating_timer_t *rt) {
+    gpio_put(LED_PIN, !gpio_get(LED_PIN));
+    return true;
 }
 
 void init_stepper_motor(stepper_motor_t *motor) {
