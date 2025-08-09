@@ -36,10 +36,11 @@ pico_sdk_init()
 # Add executable. Default name is the project name, version 0.1
 
 add_executable(controle_motor
+    run_indef.c
     # first_stepper_test.c
     # linear_accel_blocking.c
     # linear_accel_timer.c
-    linear_accel_timer_parallel.c
+    # linear_accel_timer_parallel.c
     # run_motor_with_timer.c
     # homing.c
     # test_acceleration_2.c

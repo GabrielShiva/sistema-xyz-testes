@@ -1,27 +1,33 @@
+/*
+* TESTE 01 - MOTOR DE PASSO M49SP-2K (7.5º/step)
+* DESC: Esse código testa o funcionamento do motor de passo através da utilização de micropassos (1/16).
+*   O motor de passo deve executar revoluções completas no sentido horário e anti-horário em velocidade
+*   constante. O desenvolvimento do controle é feita pela geração de um trem de pulsos enviado ao pino
+*   STEP. Esses pulsos são gerados pela utilização da função bloqueante sleep_ms(), o que impede a execu-
+*   ção de outras tarefas em paralelo.
+*/
+
 #include <stdio.h>
 #include "pico/stdlib.h"
-#include <math.h>
 
 #define STEP_PIN  1  // pino STEP
 #define DIR_PIN   0  // pino DIR
 #define BTN_CONTROL 7 // Inicia/Para movimento
 
-// #define CW 0
-// #define CCW 1
-#define CW 1
-#define CCW 0
+// #define CW 1
+// #define CCW 0
+#define CW 0
+#define CCW 1
 
-#define SPR 48 // passos por revolução (360 / 7.5)
-#define MICROSTEPS 768
+#define SPR 96 // passos por revolução (360 / 3.75º)
 
 #define MS1_PIN 13
 #define MS2_PIN 14
 #define MS3_PIN 15
 
 bool mov_state = false;
-bool mov_process = false;
-
 absolute_time_t last_btn_press = 0;
+bool mov_process = false;
 
 typedef enum {
     FULL_STEP = 0,
@@ -60,46 +66,6 @@ void btn_irq(uint gpio, uint32_t events) {
     }
 }
 
-void const_accel(bool is_accel) {
-    uint64_t delays[MICROSTEPS];
-    float angle = 1.0f;
-    float accel = 0.05f;
-    float c0 = 2000.0f * sqrtf(2.0f * angle / accel) * 0.67703f; //19149
-    float lastDelay = 0.0f;
-    int highSpeed = 300;
-
-    for (int i = 0; i < MICROSTEPS; i++) {
-        float d = c0;
-
-        if (i > 0) {
-            d = lastDelay - (2 * lastDelay) / (4 * i + 1);
-        }
-
-        if (d < highSpeed) {
-            d = highSpeed;
-        }
-
-        delays[i] = (uint64_t)d;
-        lastDelay = d;
-    }
-
-    if (is_accel) {
-        for (int i = 0; i < MICROSTEPS; i++) {
-            gpio_put(STEP_PIN, 1);
-            sleep_us(delays[i]);
-            gpio_put(STEP_PIN, 0);
-            sleep_us(delays[i]);
-        }
-    } else {
-        for (int i = 0; i < MICROSTEPS; i++) {
-            gpio_put(STEP_PIN, 1);
-            sleep_us(delays[MICROSTEPS - i - 1]);
-            gpio_put(STEP_PIN, 0);
-            sleep_us(delays[MICROSTEPS - i - 1]);
-        }
-    }
-}
-
 int main() {
     stdio_init_all();
 
@@ -120,36 +86,27 @@ int main() {
     set_resolution(SIXTEENTH_STEP);
 
     // Define o número de passos por revolução com o micropasso de 1/16
-    const uint steps_per_rev = SPR * 16; // 768 passos
-    const uint64_t pulse_delay_us = (uint64_t)(((1.0f / 48.0f) / 16.0f) / 2.0f * 1e6f); // 651 us
+    const uint steps_per_rev = SPR * 16; // 1536 passos
+    const uint64_t pulse_delay_us = (uint64_t)(((1.0f / 96.0f) / 16.0f / 4.0f) * 1e6f); // 651 us
 
     mov_state = false;
-    gpio_put(DIR_PIN, CW);
 
     while(true) {
         if (mov_state) {
             mov_process = true;
 
-            // acelera de 0 até 300 us
-            const_accel(true);
-
-            //mantém em 300 us por duas revoluções no sentido horário
-            for (int i = 0; i < MICROSTEPS * 4; i++) {
+            for (int x = 0; x < steps_per_rev; x++) {
                 gpio_put(STEP_PIN, 1);
-                sleep_us(300);
+                sleep_us(pulse_delay_us);
                 gpio_put(STEP_PIN, 0);
-                sleep_us(300);
+                sleep_us(pulse_delay_us);
             }
-
-            // desacelerá de 300 us até 0
-            const_accel(false);
-            sleep_ms(500);
 
             mov_process = false;
             mov_state = false;
-        } else {
-            sleep_ms(60);
         }
+
+        sleep_ms(60);
     }
 
     return 0;

@@ -157,7 +157,6 @@ void move_to_position(stepper_motor_t *motor, int32_t target, bool wait) {
     }
 }
 
-
 void init_stepper_motor(stepper_motor_t *motor) {
     gpio_init(motor->step_pin);
     gpio_set_dir(motor->step_pin, GPIO_OUT);
@@ -179,7 +178,7 @@ void init_stepper_motor(stepper_motor_t *motor) {
     gpio_put(motor->ms3_pin, 1);
 
     // Valores iniciais para a rampa
-    motor->initial_step_interval = 3200.0f;
+    motor->initial_step_interval = 6200.0f;
     motor->actual_step_interval  = motor->initial_step_interval;
     motor->half_period_interval  = motor->actual_step_interval * 0.5f;
     motor->max_speed             = 100;
