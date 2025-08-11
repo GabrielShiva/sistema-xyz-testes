@@ -87,7 +87,7 @@ int main() {
 
     // Define o número de passos por revolução com o micropasso de 1/16
     const uint steps_per_rev = SPR * 16; // 1536 passos
-    const uint64_t pulse_delay_us = (uint64_t)(((1.0f / 96.0f) / 16.0f / 4.0f) * 1e6f); // 651 us
+    const uint64_t pulse_delay_us = (uint64_t)(((1.0f / 96.0f) / 16.0f / 16.0f) * 1e6f); // 651 us
 
     mov_state = false;
 
@@ -95,7 +95,7 @@ int main() {
         if (mov_state) {
             mov_process = true;
 
-            for (int x = 0; x < steps_per_rev; x++) {
+            for (int x = 0; x < steps_per_rev * 10; x++) {
                 gpio_put(STEP_PIN, 1);
                 sleep_us(pulse_delay_us);
                 gpio_put(STEP_PIN, 0);
