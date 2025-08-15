@@ -6,8 +6,10 @@
 
 #include "hardware/irq.h"
 #include "hardware/timer.h"
+#include "hardware/adc.h"
 
-#define LED_PIN   25
+#define LED_PIN        25
+#define JOYSTICK_X_PIN 26
 
 // Estrutura que representa o motor de passo
 typedef struct {
@@ -36,6 +38,9 @@ typedef struct {
     volatile bool movement_done;
     volatile bool step_state;
 
+    // novos campos para controle contínuo via joystick
+    volatile bool continuous_mode;
+    volatile bool alarm_active;
     alarm_id_t alarm_id;
 } stepper_motor_t;
 
@@ -66,6 +71,8 @@ stepper_motor_t steppers[3] = {
     // },
 };
 
+float x_reading = 0.0f;
+
 // Declaração de funções
 int64_t alarm_irq_handler(alarm_id_t id, void *user_data);
 void init_stepper_motor(stepper_motor_t *motor);
@@ -73,10 +80,18 @@ void move_n_steps(stepper_motor_t *motor, int32_t steps);
 void move_to_position(stepper_motor_t *motor, int32_t target, bool wait);
 bool led_callback(repeating_timer_t *rt);
 
+// novos protótipos
+void start_motor_continuous(stepper_motor_t *motor);
+void stop_motor(stepper_motor_t *motor);
+uint16_t read_joystick_average(int samples, int delay_ms);
 
 // Função principal
 int main (void) {
     stdio_init_all();
+
+    adc_init();
+    adc_gpio_init(JOYSTICK_X_PIN);
+    adc_select_input(0);
 
     gpio_init(LED_PIN); gpio_set_dir(LED_PIN, GPIO_OUT); gpio_put(LED_PIN, 0);
 
@@ -99,64 +114,128 @@ int main (void) {
     // Cria instância do timer para o LED
     add_repeating_timer_ms(500, led_callback, NULL, &led_timer);
 
-    sleep_ms(5000);
+    sleep_ms(3000);
+
+    // =========================
+    // Calibração inicial do joystick: lê 100 amostras e define o centro
+    // =========================
+    const int NUM_CAL_SAMPLES = 100;
+    const int CAL_SAMPLE_DELAY_MS = 5;
+    uint16_t joystick_center = read_joystick_average(NUM_CAL_SAMPLES, CAL_SAMPLE_DELAY_MS);
+    printf("Joystick center (avg %d samples) = %u\n", NUM_CAL_SAMPLES, joystick_center);
+    sleep_ms(2000);
+
+    // margem morta (deadzone) em contagens ADC, ajuste se necessário
+    const uint16_t DEADZONE = 200; // ~30/4095 ~ small tolerance. Ajuste conforme ruído do seu joystick
+
+    const uint16_t MAX_INTERVAL_JOYSTICK = 1750; // us
+
+    // referência para normalização
+    const uint16_t ADC_MAX = (1 << 12) - 1; // 4095
+
+    // Configurações do motor 0 (já definidas em init, mas deixo claro aqui caso queira alterar)
+    stepper_motor_t *m0 = &steppers[0];
+
     printf("Iniciando demo para 3 motores...\n");
 
     while (true) {
-        move_to_position(&steppers[0], 192, false); // horario
-        move_to_position(&steppers[1], 192, false); // anti-horario
+        uint16_t reading = adc_read();
+        int delta = (int)reading - (int)joystick_center;
 
-        while (!(steppers[0].movement_done && steppers[1].movement_done)) {
-            tight_loop_contents();
+        if (abs(delta) <= (int)DEADZONE) {
+            // dentro da zona morta -> garante que o motor esteja parado
+            printf("Joystick in deadzone\n");
+            if (m0->alarm_active) {
+                stop_motor(m0);
+            }
+        } else {
+            // fora da zona morta -> direção e velocidade proporcional à distância do centro
+            // determina direção consistente com move_n_steps: steps > 0 -> dir = 1 -> gpio_put(dir_pin, 0)
+            if (delta > 0) {
+                m0->dir = 1;
+                gpio_put(m0->dir_pin, 0);
+                printf("Fora da zona morta (CW)\n");
+            } else {
+                m0->dir = -1;
+                gpio_put(m0->dir_pin, 1);
+                printf("Fora da zona morta (CCW)\n");
+            }
+
+
+            // calcula normalização usando distância máxima do centro (considera assimetria)
+            uint16_t max_pos_dev = ADC_MAX - joystick_center;
+            uint16_t max_neg_dev = joystick_center;
+            float max_dev = (delta > 0) ? (float)max_pos_dev : (float)max_neg_dev;
+            if (max_dev <= 0.0f) max_dev = (float)ADC_MAX / 2.0f;
+
+            float norm = (float)abs(delta) / max_dev;
+            if (norm > 1.0f) norm = 1.0f;
+
+            // mapeia norm (0..1) para intervalo de tempo entre passos [initial_step_interval .. max_speed]
+            // lembre: initial_step_interval é lento (maior), max_speed é rápido (menor)
+            float min_int = (float)m0->max_speed;
+            float max_int = m0->initial_step_interval;
+            float desired_interval = max_int - norm * (max_int - min_int); // linear
+
+            if (desired_interval < MAX_INTERVAL_JOYSTICK) desired_interval = MAX_INTERVAL_JOYSTICK;
+
+            // aplica
+            m0->actual_step_interval = desired_interval;
+            m0->half_period_interval = desired_interval * 0.5f;
+
+            printf("Motor started (reading=%u) dir=%d interval=%.1fus\n", reading, m0->dir, m0->actual_step_interval);
+
+            // se motor não está rodando, inicia em modo contínuo
+            if (!m0->alarm_active) {
+                start_motor_continuous(m0);
+            }
         }
 
-
-        move_to_position(&steppers[0], 384, false);
-        move_to_position(&steppers[1], 384, false);
-
-        while (!(steppers[0].movement_done && steppers[1].movement_done)) {
-            tight_loop_contents();
-        }
-
-
-
-        move_to_position(&steppers[0], 576, false);
-        move_to_position(&steppers[1], 576, false);
-
-        while (!(steppers[0].movement_done && steppers[1].movement_done)) {
-            tight_loop_contents();
-        }
-
-
-        move_to_position(&steppers[0], 768, false);
-        move_to_position(&steppers[1], 768, false);
-
-        while (!(steppers[0].movement_done && steppers[1].movement_done)) {
-            tight_loop_contents();
-        }
-
-        sleep_ms(1500);
-
-        move_to_position(&steppers[0], 0, false);
-        move_to_position(&steppers[1], 0, false);
-
-
-        printf("Todos os motores executaram os movimentos!\n");
-
-        while (true);
+        sleep_ms(10); // taxa de leitura do joystick (50 Hz). Ajuste conforme necessidade
     }
 
     return 0;
 }
 
-
 int64_t alarm_irq_handler(alarm_id_t id, void *user_data) {
     // Obtém a instância do motor
     stepper_motor_t *motor = (stepper_motor_t*)user_data;
 
+    // Se em modo contínuo, gerencia pulso sem a lógica de rampa por passos finitos
+    if (motor->continuous_mode) {
+        if (!motor->step_state) {
+            // pulso alto
+            gpio_put(motor->step_pin, 1);
+            motor->step_state = true;
+            // Retorna metade do período (us) até próximo toggle
+            return (int64_t)motor->half_period_interval;
+        } else {
+            // pulso baixo
+            gpio_put(motor->step_pin, 0);
+            motor->step_state = false;
+
+            // Atualiza contadores de posição
+            motor->step_count++;
+            motor->step_position += motor->dir;
+
+            // Atualiza half_period de acordo com actual_step_interval (que é atualizada pelo loop principal)
+            motor->half_period_interval = motor->actual_step_interval * 0.5f;
+
+            // Se por alguma razão movement_done foi solicitado, interrompe
+            if (motor->movement_done) {
+                motor->alarm_active = false;
+                motor->continuous_mode = false;
+                return 0; // cancela agendamento
+            }
+
+            return (int64_t)motor->half_period_interval;
+        }
+    }
+
     // Caso o movimento tenha acabado, interrompe o agendamento de alarmes
     if (motor->step_count >= motor->total_steps) {
         motor->movement_done = true;
+        motor->alarm_active = false;
         return 0;
     }
 
@@ -238,6 +317,9 @@ void init_stepper_motor(stepper_motor_t *motor) {
     motor->ramp_up_count         = 0;
     motor->acceleration_counter  = 0;
     motor->dir                   = 0;
+    motor->continuous_mode       = false;
+    motor->alarm_active          = false;
+    motor->alarm_id              = 0;
 }
 
 void move_n_steps(stepper_motor_t *motor, int32_t steps) {
@@ -258,6 +340,7 @@ void move_n_steps(stepper_motor_t *motor, int32_t steps) {
 
     // Agenda o alarme para o primeiro pulso
     motor->alarm_id = add_alarm_in_us((int64_t)motor->half_period_interval, alarm_irq_handler, motor, false);
+    motor->alarm_active = true;
 }
 
 void move_to_position(stepper_motor_t *motor, int32_t target, bool wait) {
@@ -266,3 +349,39 @@ void move_to_position(stepper_motor_t *motor, int32_t target, bool wait) {
         while (!motor->movement_done);
     }
 }
+
+// Inicia o motor em modo contínuo (usado para joystick)
+void start_motor_continuous(stepper_motor_t *motor) {
+    if (motor->alarm_active) return; // já rodando
+
+    motor->continuous_mode = true;
+    motor->movement_done = false;
+    motor->step_state = false;
+    motor->step_count = 0; // pode manter contagem se quiser
+    motor->half_period_interval = motor->actual_step_interval * 0.5f;
+    motor->alarm_id = add_alarm_in_us((int64_t)motor->half_period_interval, alarm_irq_handler, motor, false);
+    motor->alarm_active = true;
+}
+
+// Para o motor (modo contínuo)
+void stop_motor(stepper_motor_t *motor) {
+    if (!motor->alarm_active) return;
+    cancel_alarm(motor->alarm_id);
+    motor->alarm_active = false;
+    motor->continuous_mode = false;
+    motor->movement_done = true;
+    motor->step_state = false;
+    gpio_put(motor->step_pin, 0);
+}
+
+// Lê N amostras do ADC e retorna a média
+uint16_t read_joystick_average(int samples, int delay_ms) {
+    uint32_t sum = 0;
+    for (int i = 0; i < samples; i++) {
+        uint16_t r = adc_read();
+        sum += r;
+        sleep_ms(delay_ms);
+    }
+    return (uint16_t)(sum / (uint32_t)samples);
+}
+
