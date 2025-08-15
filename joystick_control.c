@@ -144,7 +144,7 @@ int main (void) {
 
         if (abs(delta) <= (int)DEADZONE) {
             // dentro da zona morta -> garante que o motor esteja parado
-            printf("Joystick in deadzone\n");
+            printf("Motor parado\n");
             if (m0->alarm_active) {
                 stop_motor(m0);
             }
@@ -154,11 +154,9 @@ int main (void) {
             if (delta > 0) {
                 m0->dir = 1;
                 gpio_put(m0->dir_pin, 0);
-                printf("Fora da zona morta (CW)\n");
             } else {
                 m0->dir = -1;
                 gpio_put(m0->dir_pin, 1);
-                printf("Fora da zona morta (CCW)\n");
             }
 
 
@@ -172,18 +170,18 @@ int main (void) {
             if (norm > 1.0f) norm = 1.0f;
 
             // mapeia norm (0..1) para intervalo de tempo entre passos [initial_step_interval .. max_speed]
-            // lembre: initial_step_interval é lento (maior), max_speed é rápido (menor)
+            // initial_step_interval é lento (maior), max_speed é rápido (menor)
             float min_int = (float)m0->max_speed;
             float max_int = m0->initial_step_interval;
             float desired_interval = max_int - norm * (max_int - min_int); // linear
 
             if (desired_interval < MAX_INTERVAL_JOYSTICK) desired_interval = MAX_INTERVAL_JOYSTICK;
 
-            // aplica
+            // Define o intervalo dos pulsos
             m0->actual_step_interval = desired_interval;
             m0->half_period_interval = desired_interval * 0.5f;
 
-            printf("Motor started (reading=%u) dir=%d interval=%.1fus\n", reading, m0->dir, m0->actual_step_interval);
+            printf("Motor em movimento (leitura=%u) (dir=%d) (intervalo=%.1fus)\n", reading, m0->dir, m0->actual_step_interval);
 
             // se motor não está rodando, inicia em modo contínuo
             if (!m0->alarm_active) {
