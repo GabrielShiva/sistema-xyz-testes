@@ -42,7 +42,9 @@ add_executable(controle_motor
     # linear_accel_timer.c
     # linear_accel_timer_parallel.c
     # multiple_motors_control.c
-    joystick_control.c
+    # joystick_control.c
+    # joystick_control_v2.c
+    joystick_control_v3.c
     # run_motor_with_timer.c
     # homing.c
     # test_acceleration_2.c
