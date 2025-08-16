@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <math.h>
 
 #include "pico/stdlib.h"
@@ -45,33 +46,15 @@ typedef struct {
 } stepper_motor_t;
 
 stepper_motor_t steppers[3] = {
-    // Motor 1
-    {
-        .dir_pin = 0,
-        .step_pin = 1,
-        .ms1_pin = 13,
-        .ms2_pin = 14,
-        .ms3_pin = 15,
-    },
-    // Motor 2
-    {
-        .dir_pin = 17,
-        .step_pin = 16,
-        .ms1_pin = 13,
-        .ms2_pin = 14,
-        .ms3_pin = 15,
-    },
-    // // Motor 3
-    // {
-    //     .dir_pin = 4,
-    //     .step_pin = 5,
-    //     .ms1_pin = 13,
-    //     .ms2_pin = 14,
-    //     .ms3_pin = 15,
-    // },
+    { .dir_pin = 0, .step_pin = 1, .ms1_pin = 13, .ms2_pin = 14, .ms3_pin = 15 },
+    { .dir_pin = 17, .step_pin = 16, .ms1_pin = 13, .ms2_pin = 14, .ms3_pin = 15 }
 };
 
-float x_reading = 0.0f;
+// Add these global variables after your stepper_motor_t definitions
+#define COMMAND_BUFFER_SIZE 64
+char command_buffer[COMMAND_BUFFER_SIZE];
+int command_buffer_pos = 0;
+bool command_ready = false;
 
 // Declaração de funções
 int64_t alarm_irq_handler(alarm_id_t id, void *user_data);
@@ -79,6 +62,12 @@ void init_stepper_motor(stepper_motor_t *motor);
 void move_n_steps(stepper_motor_t *motor, int32_t steps);
 void move_to_position(stepper_motor_t *motor, int32_t target, bool wait);
 bool led_callback(repeating_timer_t *rt);
+// Add these function prototypes after your existing ones
+void process_serial_input(void);
+void handle_command(const char* command);
+void parse_move_command(const char* params);
+void parse_speed_command(const char* params);
+
 
 // novos protótipos
 void start_motor_continuous(stepper_motor_t *motor);
@@ -139,18 +128,26 @@ int main (void) {
     printf("Iniciando demo para 3 motores...\n");
 
     while (true) {
+        // Process any incoming serial commands
+        process_serial_input();
+
+        if (command_ready) {
+            handle_command(command_buffer);
+            command_buffer_pos = 0;
+            command_ready = false;
+        }
+
+        // Your existing joystick code here
         uint16_t reading = adc_read();
         int delta = (int)reading - (int)joystick_center;
 
         if (abs(delta) <= (int)DEADZONE) {
-            // dentro da zona morta -> garante que o motor esteja parado
-            printf("Motor parado\n");
+            // within deadzone -> ensure motor is stopped
             if (m0->alarm_active) {
                 stop_motor(m0);
             }
         } else {
-            // fora da zona morta -> direção e velocidade proporcional à distância do centro
-            // determina direção consistente com move_n_steps: steps > 0 -> dir = 1 -> gpio_put(dir_pin, 0)
+            // outside deadzone -> direction and speed proportional to distance from center
             if (delta > 0) {
                 m0->dir = 1;
                 gpio_put(m0->dir_pin, 0);
@@ -159,8 +156,7 @@ int main (void) {
                 gpio_put(m0->dir_pin, 1);
             }
 
-
-            // calcula normalização usando distância máxima do centro (considera assimetria)
+            // Calculate normalization using max distance from center
             uint16_t max_pos_dev = ADC_MAX - joystick_center;
             uint16_t max_neg_dev = joystick_center;
             float max_dev = (delta > 0) ? (float)max_pos_dev : (float)max_neg_dev;
@@ -169,27 +165,25 @@ int main (void) {
             float norm = (float)abs(delta) / max_dev;
             if (norm > 1.0f) norm = 1.0f;
 
-            // mapeia norm (0..1) para intervalo de tempo entre passos [initial_step_interval .. max_speed]
-            // initial_step_interval é lento (maior), max_speed é rápido (menor)
+            // Map norm (0..1) to step interval
             float min_int = (float)m0->max_speed;
             float max_int = m0->initial_step_interval;
-            float desired_interval = max_int - norm * (max_int - min_int); // linear
+            float desired_interval = max_int - norm * (max_int - min_int);
 
             if (desired_interval < MAX_INTERVAL_JOYSTICK) desired_interval = MAX_INTERVAL_JOYSTICK;
 
-            // Define o intervalo dos pulsos
             m0->actual_step_interval = desired_interval;
             m0->half_period_interval = desired_interval * 0.5f;
 
-            printf("Motor em movimento (leitura=%u) (dir=%d) (intervalo=%.1fus)\n", reading, m0->dir, m0->actual_step_interval);
-
-            // se motor não está rodando, inicia em modo contínuo
+            // Start motor in continuous mode if not already running
             if (!m0->alarm_active) {
                 start_motor_continuous(m0);
             }
         }
 
-        sleep_ms(10); // taxa de leitura do joystick (50 Hz). Ajuste conforme necessidade
+        printf("DATA,%u,%d,%.1f\n", reading, m0->dir, m0->actual_step_interval);
+
+        sleep_ms(10); // 50 Hz joystick reading rate
     }
 
     return 0;
@@ -383,3 +377,101 @@ uint16_t read_joystick_average(int samples, int delay_ms) {
     return (uint16_t)(sum / (uint32_t)samples);
 }
 
+// Add this function to process incoming serial data
+void process_serial_input(void) {
+    int c = getchar_timeout_us(0); // Non-blocking read
+
+    if (c != PICO_ERROR_TIMEOUT) {
+        if (c == '\n' || c == '\r') {
+            if (command_buffer_pos > 0) {
+                command_buffer[command_buffer_pos] = '\0';
+                command_ready = true;
+            }
+        } else if (c >= 32 && c <= 126) { // Printable characters only
+            if (command_buffer_pos < COMMAND_BUFFER_SIZE - 1) {
+                command_buffer[command_buffer_pos++] = (char)c;
+            }
+        }
+    }
+}
+
+// Main command handler
+void handle_command(const char* command) {
+    printf("Received command: %s\n", command);
+
+    if (strncmp(command, "MOVE,", 5) == 0) {
+        parse_move_command(command + 5);
+    }
+    else if (strncmp(command, "SPEED,", 6) == 0) {
+        parse_speed_command(command + 6);
+    }
+    else if (strcmp(command, "STOP") == 0) {
+        // Emergency stop
+        stepper_motor_t *m0 = &steppers[0];
+        if (m0->alarm_active) {
+            stop_motor(m0);
+        }
+        printf("Emergency stop executed\n");
+    }
+    else if (strcmp(command, "STATUS") == 0) {
+        // Send status information
+        stepper_motor_t *m0 = &steppers[0];
+        printf("STATUS,%d,%d,%d,%.1f\n",
+               (int)m0->step_position,
+               m0->alarm_active ? 1 : 0,
+               m0->dir,
+               m0->actual_step_interval);
+    }
+    else {
+        printf("Unknown command: %s\n", command);
+    }
+}
+
+// Parse MOVE command: MOVE,<steps>
+void parse_move_command(const char* params) {
+    int steps = atoi(params);
+    stepper_motor_t *m0 = &steppers[0];
+
+    // Stop current movement if any
+    if (m0->alarm_active && m0->continuous_mode) {
+        stop_motor(m0);
+        sleep_ms(10); // Small delay to ensure stop
+    }
+
+    printf("Moving %d steps\n", steps);
+
+    if (steps != 0) {
+        // Temporarily disable continuous mode for precise movement
+        bool was_continuous = m0->continuous_mode;
+        m0->continuous_mode = false;
+
+        move_n_steps(m0, steps);
+
+        // Wait for movement to complete, then restore continuous mode
+        while (!m0->movement_done && m0->alarm_active) {
+            sleep_ms(1);
+        }
+
+        if (was_continuous) {
+            // Note: You might want to restart joystick control here
+            // depending on your application logic
+        }
+    }
+}
+
+// Parse SPEED command: SPEED,<interval_us>
+void parse_speed_command(const char* params) {
+    int speed = atoi(params);
+    stepper_motor_t *m0 = &steppers[0];
+
+    if (speed > 0 && speed <= 10000) { // Reasonable range: 100Hz to 0.1Hz
+        m0->initial_step_interval = (float)speed;
+        m0->max_speed = speed / 10; // Max speed is 10x faster than initial
+        if (m0->max_speed < 100) m0->max_speed = 100; // Minimum 100μs
+
+        printf("Speed updated: initial=%.1fμs, max=%dμs\n",
+               m0->initial_step_interval, m0->max_speed);
+    } else {
+        printf("Invalid speed: %d (must be 1-10000μs)\n", speed);
+    }
+}
