@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stepper Motor Control</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/apexcharts/3.44.0/apexcharts.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            background: #1e1e1e;
+            color: #dcdcdc;
+            overflow: hidden;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+
+        .charts-panel {
+            width: 60%;
+            padding: 10px;
+            border-right: 2px solid #404040;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chart-container {
+            flex: 1;
+            background: #252526;
+            border: 1px solid #404040;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            padding: 15px;
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.3);
+        }
+
+        .chart-container:last-child {
+            margin-bottom: 0;
+        }
+
+        .chart-title {
+            color: #569cd6;
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-align: center;
+            padding: 5px;
+            background: #2d2d30;
+            border-radius: 3px;
+        }
+
+        .control-panel {
+            width: 40%;
+            padding: 20px;
+            background: #2d2d30;
+            overflow-y: auto;
+        }
+
+        .section {
+            background: #252526;
+            border: 1px solid #404040;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .section-header {
+            background: #3c3c3c;
+            padding: 10px 15px;
+            border-bottom: 1px solid #404040;
+            font-weight: bold;
+            color: #dcdcdc;
+            font-size: 13px;
+        }
+
+        .section-content {
+            padding: 15px;
+        }
+
+        .button {
+            background: linear-gradient(180deg, #505050 0%, #404040 100%);
+            border: 1px solid #606060;
+            border-radius: 3px;
+            color: #dcdcdc;
+            padding: 8px 16px;
+            font-family: inherit;
+            font-size: 12px;
+            cursor: pointer;
+            margin: 3px;
+            transition: all 0.1s;
+        }
+
+        .button:hover {
+            background: linear-gradient(180deg, #606060 0%, #505050 100%);
+            border-color: #707070;
+        }
+
+        .button:active {
+            background: linear-gradient(180deg, #404040 0%, #505050 100%);
+            transform: translateY(1px);
+        }
+
+        .button.primary {
+            background: linear-gradient(180deg, #0078d4 0%, #106ebe 100%);
+            border-color: #1a8cff;
+        }
+
+        .button.primary:hover {
+            background: linear-gradient(180deg, #1a8cff 0%, #0078d4 100%);
+        }
+
+        .button.danger {
+            background: linear-gradient(180deg, #dc3545 0%, #c82333 100%);
+            border-color: #e74c3c;
+        }
+
+        .button.danger:hover {
+            background: linear-gradient(180deg, #e74c3c 0%, #dc3545 100%);
+        }
+
+        .input-group {
+            margin: 8px 0;
+        }
+
+        .input-label {
+            display: block;
+            margin-bottom: 4px;
+            color: #cccccc;
+            font-size: 12px;
+        }
+
+        .input {
+            background: #3c3c3c;
+            border: 1px solid #5a5a5a;
+            border-radius: 3px;
+            color: #dcdcdc;
+            padding: 6px 8px;
+            font-family: inherit;
+            font-size: 12px;
+            width: 100%;
+        }
+
+        .input:focus {
+            outline: none;
+            border-color: #007acc;
+            box-shadow: 0 0 0 1px #007acc;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+
+        .status-connected {
+            background: #4caf50;
+            box-shadow: 0 0 4px #4caf50;
+        }
+
+        .status-disconnected {
+            background: #f44336;
+        }
+
+        .status-line {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+            font-size: 12px;
+        }
+
+        .data-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .data-item {
+            background: #3c3c3c;
+            padding: 8px;
+            border-radius: 3px;
+            border: 1px solid #5a5a5a;
+        }
+
+        .data-label {
+            font-size: 10px;
+            color: #999;
+            text-transform: uppercase;
+        }
+
+        .data-value {
+            font-size: 14px;
+            font-weight: bold;
+            color: #dcdcdc;
+        }
+
+        .log-container {
+            background: #1e1e1e;
+            border: 1px solid #404040;
+            border-radius: 3px;
+            height: 120px;
+            overflow-y: auto;
+            padding: 8px;
+            font-size: 11px;
+            font-family: 'Consolas', monospace;
+        }
+
+        .log-entry {
+            margin: 2px 0;
+            color: #cccccc;
+        }
+
+        .log-entry.error {
+            color: #f44336;
+        }
+
+        .log-entry.info {
+            color: #2196f3;
+        }
+
+        .log-entry.success {
+            color: #4caf50;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="charts-panel">
+            <div class="chart-container">
+                <div class="chart-title">Joystick Reading</div>
+                <div id="joystick-chart"></div>
+            </div>
+            <div class="chart-container">
+                <div class="chart-title">Step Interval (μs)</div>
+                <div id="interval-chart"></div>
+            </div>
+        </div>
+
+        <div class="control-panel">
+            <div class="section">
+                <div class="section-header">System State</div>
+                <div class="section-content">
+                    <div class="status-line">
+                        <span class="status-indicator" id="state-indicator"></span>
+                        <span id="state-text">Unknown</span>
+                    </div>
+                    <button class="button" id="joystick-mode-btn">Joystick Mode</button>
+                    <button class="button" id="command-mode-btn">Command Mode</button>
+                    <div class="input-group" style="margin-top: 10px;">
+                        <label class="input-label">Active Motors (1-3)</label>
+                        <input type="number" class="input" id="motor-count-input" min="1" max="3" value="1">
+                        <button class="button" id="set-motors-btn" style="margin-top: 5px;">Set Motor Count</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-header">Connection</div>
+                <div class="section-content">
+                    <div class="status-line">
+                        <span class="status-indicator" id="connection-status"></span>
+                        <span id="connection-text">Disconnected</span>
+                    </div>
+                    <button class="button primary" id="connect-btn">Connect Serial</button>
+                    <button class="button danger" id="disconnect-btn" disabled>Disconnect</button>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-header">Live Data</div>
+                <div class="section-content">
+                    <div class="data-grid">
+                        <div class="data-item">
+                            <div class="data-label">Joystick</div>
+                            <div class="data-value" id="joystick-value">0</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label">Direction</div>
+                            <div class="data-value" id="direction-value">0</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label">Interval (μs)</div>
+                            <div class="data-value" id="interval-value">0.0</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label">Speed</div>
+                            <div class="data-value" id="speed-value">0</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-header">Position Control</div>
+                <div class="section-content">
+                    <div class="data-grid">
+                        <div class="data-item">
+                            <div class="data-label">Current Position</div>
+                            <div class="data-value" id="current-position">0</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label">Target Position</div>
+                            <div class="data-value" id="target-position">0</div>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">Move to Position</label>
+                        <input type="number" class="input" id="position-input" placeholder="Enter target position" value="0">
+                    </div>
+                    <button class="button" id="move-to-position-btn">Move to Position</button>
+                    <button class="button" id="set-zero-btn">Set Current as Zero</button>
+                    <div class="input-group" style="margin-top: 10px;">
+                        <label class="input-label">
+                            <input type="checkbox" id="wait-completion-checkbox" checked style="margin-right: 5px;">
+                            Wait for completion
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-header">Motor Control</div>
+                <div class="section-content">
+                    <div class="input-group">
+                        <label class="input-label">Steps to Move</label>
+                        <input type="number" class="input" id="steps-input" placeholder="Enter steps" value="100">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">Speed (μs)</label>
+                        <input type="number" class="input" id="speed-input" placeholder="Step interval" value="1000">
+                    </div>
+                    <button class="button" id="move-forward-btn">Move Forward</button>
+                    <button class="button" id="move-backward-btn">Move Backward</button>
+                    <button class="button" id="set-speed-btn">Set Speed</button>
+                    <button class="button danger" id="emergency-stop-btn">Emergency Stop</button>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-header">System Log</div>
+                <div class="section-content">
+                    <div class="log-container" id="log-container"></div>
+                    <button class="button" id="clear-log-btn">Clear Log</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class StepperMotorGUI {
+            constructor() {
+                this.port = null;
+                this.reader = null;
+                this.isConnected = false;
+                this.joystickData = [];
+                this.intervalData = [];
+                this.maxDataPoints = 100;
+
+                // Chart update throttling
+                this.lastChartUpdate = 0;
+                this.chartUpdateInterval = 100; // Update charts every 100ms (10 FPS)
+                this.pendingChartUpdate = false;
+
+                // Latest data for display
+                this.latestReading = 0;
+                this.latestDirection = 0;
+                this.latestInterval = 0;
+
+                // System state
+                this.currentState = 'unknown';
+                this.motorCount = 1;
+                this.currentPosition = 0;
+                this.targetPosition = 0;
+
+                this.initializeCharts();
+                this.initializeEventListeners();
+                this.addLogEntry('GUI initialized', 'info');
+            }
+
+            initializeCharts() {
+                const chartOptions = {
+                    chart: {
+                        type: 'line',
+                        height: '100%',
+                        background: 'transparent',
+                        toolbar: { show: false },
+                        animations: {
+                            enabled: true,
+                            easing: 'linear',
+                            dynamicAnimation: {
+                                speed: 100
+                            }
+                        }
+                    },
+                    theme: {
+                        mode: 'dark'
+                    },
+                    grid: {
+                        borderColor: '#404040'
+                    },
+                    xaxis: {
+                        type: 'numeric',
+                        range: this.maxDataPoints,
+                        labels: { style: { colors: '#999999' } }
+                    },
+                    yaxis: {
+                        labels: { style: { colors: '#999999' } }
+                    },
+                    stroke: {
+                        curve: 'smooth',
+                        width: 2
+                    },
+                    markers: {
+                        size: 0
+                    },
+                    tooltip: {
+                        theme: 'dark'
+                    }
+                };
+
+                // Joystick Chart
+                this.joystickChart = new ApexCharts(document.querySelector("#joystick-chart"), {
+                    ...chartOptions,
+                    series: [{
+                        name: 'Reading',
+                        data: [],
+                        color: '#00d4ff'
+                    }],
+                    yaxis: {
+                        ...chartOptions.yaxis,
+                        min: 0,
+                        max: 4095,
+                        title: { text: 'ADC Value', style: { color: '#999999' } }
+                    }
+                });
+
+                // Interval Chart
+                this.intervalChart = new ApexCharts(document.querySelector("#interval-chart"), {
+                    ...chartOptions,
+                    series: [{
+                        name: 'Interval',
+                        data: [],
+                        color: '#ff6b6b'
+                    }],
+                    yaxis: {
+                        ...chartOptions.yaxis,
+                        title: { text: 'Microseconds', style: { color: '#999999' } }
+                    }
+                });
+
+                this.joystickChart.render();
+                this.intervalChart.render();
+            }
+
+            initializeEventListeners() {
+                document.getElementById('connect-btn').addEventListener('click', () => this.connectSerial());
+                document.getElementById('disconnect-btn').addEventListener('click', () => this.disconnectSerial());
+                document.getElementById('clear-log-btn').addEventListener('click', () => this.clearLog());
+
+                // Motor control buttons
+                document.getElementById('move-forward-btn').addEventListener('click', () => this.moveForward());
+                document.getElementById('move-backward-btn').addEventListener('click', () => this.moveBackward());
+                document.getElementById('emergency-stop-btn').addEventListener('click', () => this.emergencyStop());
+                document.getElementById('set-speed-btn').addEventListener('click', () => this.setSpeed());
+
+                // State control buttons
+                document.getElementById('joystick-mode-btn').addEventListener('click', () => this.setJoystickMode());
+                document.getElementById('command-mode-btn').addEventListener('click', () => this.setCommandMode());
+                document.getElementById('set-motors-btn').addEventListener('click', () => this.setMotorCount());
+
+                // Position control buttons
+                document.getElementById('move-to-position-btn').addEventListener('click', () => this.moveToPosition());
+                document.getElementById('set-zero-btn').addEventListener('click', () => this.setZeroPosition());
+            }
+
+            async connectSerial() {
+                try {
+                    if (!navigator.serial) {
+                        this.addLogEntry('Web Serial API not supported', 'error');
+                        return;
+                    }
+
+                    this.port = await navigator.serial.requestPort();
+                    await this.port.open({ baudRate: 115200 });
+
+                    // Get writer for sending commands
+                    this.writer = this.port.writable.getWriter();
+
+                    this.isConnected = true;
+                    this.updateConnectionStatus();
+                    this.addLogEntry('Serial connection established', 'success');
+
+                    this.startReading();
+                } catch (error) {
+                    this.addLogEntry(`Connection failed: ${error.message}`, 'error');
+                }
+            }
+
+            async disconnectSerial() {
+                if (this.reader) {
+                    await this.reader.cancel();
+                }
+                if (this.writer) {
+                    await this.writer.close();
+                }
+                if (this.port) {
+                    await this.port.close();
+                }
+
+                this.port = null;
+                this.reader = null;
+                this.writer = null;
+                this.isConnected = false;
+                this.updateConnectionStatus();
+                this.addLogEntry('Serial connection closed', 'info');
+            }
+
+            updateConnectionStatus() {
+                const statusIndicator = document.getElementById('connection-status');
+                const statusText = document.getElementById('connection-text');
+                const connectBtn = document.getElementById('connect-btn');
+                const disconnectBtn = document.getElementById('disconnect-btn');
+
+                if (this.isConnected) {
+                    statusIndicator.className = 'status-indicator status-connected';
+                    statusText.textContent = 'Connected';
+                    connectBtn.disabled = true;
+                    disconnectBtn.disabled = false;
+                } else {
+                    statusIndicator.className = 'status-indicator status-disconnected';
+                    statusText.textContent = 'Disconnected';
+                    connectBtn.disabled = false;
+                    disconnectBtn.disabled = true;
+                }
+            }
+
+            updateStateDisplay() {
+                const stateIndicator = document.getElementById('state-indicator');
+                const stateText = document.getElementById('state-text');
+                const joystickBtn = document.getElementById('joystick-mode-btn');
+                const commandBtn = document.getElementById('command-mode-btn');
+                const motorControlButtons = document.querySelectorAll('#move-forward-btn, #move-backward-btn, #set-speed-btn');
+                const positionControlButtons = document.querySelectorAll('#move-to-position-btn, #set-zero-btn');
+
+                switch(this.currentState) {
+                    case 'joystick':
+                        stateIndicator.className = 'status-indicator status-connected';
+                        stateText.textContent = `Joystick Mode (${this.motorCount} motor${this.motorCount > 1 ? 's' : ''})`;
+                        joystickBtn.disabled = true;
+                        commandBtn.disabled = false;
+                        motorControlButtons.forEach(btn => btn.disabled = true);
+                        positionControlButtons.forEach(btn => btn.disabled = true);
+                        break;
+                    case 'command':
+                        stateIndicator.className = 'status-indicator status-connected';
+                        stateIndicator.style.backgroundColor = '#ff9800';
+                        stateIndicator.style.boxShadow = '0 0 4px #ff9800';
+                        stateText.textContent = `Command Mode (${this.motorCount} motor${this.motorCount > 1 ? 's' : ''})`;
+                        joystickBtn.disabled = false;
+                        commandBtn.disabled = true;
+                        motorControlButtons.forEach(btn => btn.disabled = false);
+                        positionControlButtons.forEach(btn => btn.disabled = false);
+                        break;
+                    default:
+                        stateIndicator.className = 'status-indicator status-disconnected';
+                        stateText.textContent = 'Unknown State';
+                        joystickBtn.disabled = false;
+                        commandBtn.disabled = false;
+                        motorControlButtons.forEach(btn => btn.disabled = true);
+                        positionControlButtons.forEach(btn => btn.disabled = true);
+                }
+            }
+
+            updatePositionDisplay() {
+                document.getElementById('current-position').textContent = this.currentPosition;
+                document.getElementById('target-position').textContent = this.targetPosition;
+            }
+            
+            async startReading() {
+                const textDecoder = new TextDecoderStream();
+                const readableStreamClosed = this.port.readable.pipeTo(textDecoder.writable);
+                this.reader = textDecoder.readable.getReader();
+
+                let buffer = '';
+
+                try {
+                    while (this.isConnected) {
+                        const { value, done } = await this.reader.read();
+                        if (done) break;
+
+                        buffer += value;
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop(); // Keep incomplete line in buffer
+
+                        for (const line of lines) {
+                            this.processDataLine(line.trim());
+                        }
+                    }
+                } catch (error) {
+                    this.addLogEntry(`Reading error: ${error.message}`, 'error');
+                } finally {
+                    this.reader.releaseLock();
+                }
+            }
+
+            processDataLine(line) {
+                if (!line) return;
+
+                if (line.startsWith('DATA,')) {
+                    try {
+                        // Parse: DATA,reading,direction,interval
+                        const parts = line.split(',');
+                        if (parts.length !== 4) return;
+
+                        const reading = parseInt(parts[1]);
+                        const direction = parseInt(parts[2]);
+                        const interval = parseFloat(parts[3]);
+
+                        // Always update the live data display (this is fast)
+                        this.updateDataDisplay(reading, direction, interval);
+
+                        // Store latest values
+                        this.latestReading = reading;
+                        this.latestDirection = direction;
+                        this.latestInterval = interval;
+
+                        // Throttle chart updates to prevent UI freezing
+                        this.throttledChartUpdate();
+
+                    } catch (error) {
+                        this.addLogEntry(`Parse error: ${error.message}`, 'error');
+                    }
+                } else if (line.startsWith('STATE,')) {
+                    // Parse state updates: STATE,mode,motor_count
+                    try {
+                        const parts = line.split(',');
+                        if (parts.length >= 2) {
+                            this.currentState = parts[1].toLowerCase();
+                            if (parts.length >= 3) {
+                                this.motorCount = parseInt(parts[2]);
+                            }
+                            this.updateStateDisplay();
+                        }
+                    } catch (error) {
+                        this.addLogEntry(`State parse error: ${error.message}`, 'error');
+                    }
+                } else if (line.startsWith('POSITION,')) {
+                    // Parse position updates: POSITION,current,target
+                    try {
+                        const parts = line.split(',');
+                        if (parts.length >= 2) {
+                            this.currentPosition = parseInt(parts[1]);
+                            if (parts.length >= 3) {
+                                this.targetPosition = parseInt(parts[2]);
+                            }
+                            this.updatePositionDisplay();
+                        }
+                    } catch (error) {
+                        this.addLogEntry(`Position parse error: ${error.message}`, 'error');
+                    }
+                } else if (line.startsWith('ACK,') || line.startsWith('ERROR,')) {
+                    // Log acknowledgments and errors
+                    this.addLogEntry(line, line.startsWith('ERROR,') ? 'error' : 'success');
+                }
+            }
+
+            throttledChartUpdate() {
+                const now = Date.now();
+
+                if (now - this.lastChartUpdate >= this.chartUpdateInterval && !this.pendingChartUpdate) {
+                    // Update immediately if enough time has passed
+                    this.updateCharts(this.latestReading, this.latestInterval);
+                    this.lastChartUpdate = now;
+                } else if (!this.pendingChartUpdate) {
+                    // Schedule an update for later
+                    this.pendingChartUpdate = true;
+                    const remainingTime = this.chartUpdateInterval - (now - this.lastChartUpdate);
+
+                    setTimeout(() => {
+                        this.updateCharts(this.latestReading, this.latestInterval);
+                        this.lastChartUpdate = Date.now();
+                        this.pendingChartUpdate = false;
+                    }, remainingTime);
+                }
+            }
+
+            updateCharts(reading, interval) {
+                const timestamp = this.joystickData.length;
+
+                // Add new data
+                this.joystickData.push([timestamp, reading]);
+                this.intervalData.push([timestamp, interval]);
+
+                // Keep only last N points
+                if (this.joystickData.length > this.maxDataPoints) {
+                    this.joystickData.shift();
+                    this.intervalData.shift();
+
+                    // Renumber timestamps
+                    this.joystickData = this.joystickData.map((point, index) => [index, point[1]]);
+                    this.intervalData = this.intervalData.map((point, index) => [index, point[1]]);
+                }
+
+                // Update charts
+                this.joystickChart.updateSeries([{ data: this.joystickData }]);
+                this.intervalChart.updateSeries([{ data: this.intervalData }]);
+            }
+
+            updateDataDisplay(reading, direction, interval) {
+                document.getElementById('joystick-value').textContent = reading;
+                document.getElementById('direction-value').textContent = direction;
+                document.getElementById('interval-value').textContent = interval.toFixed(1);
+
+                // Calculate approximate speed (steps per second)
+                const speed = interval > 0 ? Math.round(1000000 / interval) : 0;
+                document.getElementById('speed-value').textContent = speed;
+            }
+
+            addLogEntry(message, type = '') {
+                const logContainer = document.getElementById('log-container');
+                const entry = document.createElement('div');
+                entry.className = `log-entry ${type}`;
+
+                const timestamp = new Date().toLocaleTimeString();
+                entry.textContent = `[${timestamp}] ${message}`;
+
+                logContainer.appendChild(entry);
+                logContainer.scrollTop = logContainer.scrollHeight;
+
+                // Keep only last 100 entries
+                while (logContainer.children.length > 100) {
+                    logContainer.removeChild(logContainer.firstChild);
+                }
+            }
+
+            clearLog() {
+                document.getElementById('log-container').innerHTML = '';
+                this.addLogEntry('Log cleared', 'info');
+            }
+
+            // Command sending functions
+            async sendCommand(command) {
+                if (!this.isConnected || !this.writer) {
+                    this.addLogEntry('Not connected to serial port', 'error');
+                    return false;
+                }
+
+                try {
+                    const encoder = new TextEncoder();
+                    const data = encoder.encode(command + '\n');
+                    await this.writer.write(data);
+                    this.addLogEntry(`Sent: ${command}`, 'info');
+                    return true;
+                } catch (error) {
+                    this.addLogEntry(`Send error: ${error.message}`, 'error');
+                    return false;
+                }
+            }
+
+            async moveForward() {
+                const steps = parseInt(document.getElementById('steps-input').value) || 100;
+                await this.sendCommand(`MOVE,${steps}`);
+            }
+
+            async moveBackward() {
+                const steps = parseInt(document.getElementById('steps-input').value) || 100;
+                await this.sendCommand(`MOVE,${-steps}`);
+            }
+
+            async setSpeed() {
+                const speed = parseInt(document.getElementById('speed-input').value) || 1000;
+                await this.sendCommand(`SPEED,${speed}`);
+            }
+
+            async emergencyStop() {
+                await this.sendCommand('STOP');
+            }
+
+            // State control functions
+            async setJoystickMode() {
+                await this.sendCommand('MODE,JOYSTICK');
+            }
+
+            async setCommandMode() {
+                await this.sendCommand('MODE,COMMAND');
+            }
+
+            async setMotorCount() {
+                const count = parseInt(document.getElementById('motor-count-input').value) || 1;
+                if (count >= 1 && count <= 3) {
+                    await this.sendCommand(`MOTORS,${count}`);
+                } else {
+                    this.addLogEntry('Motor count must be 1-3', 'error');
+                }
+            }
+
+            // Position control functions
+            async moveToPosition() {
+                const position = parseInt(document.getElementById('position-input').value) || 0;
+                const waitForCompletion = document.getElementById('wait-completion-checkbox').checked;
+                await this.sendCommand(`MOVETO,${position},${waitForCompletion ? 1 : 0}`);
+            }
+
+            async setZeroPosition() {
+                await this.sendCommand('SETZERO');
+            }
+        }
+
+        // Initialize the GUI when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            new StepperMotorGUI();
+        });
+    </script>
+</body>
+</html>
