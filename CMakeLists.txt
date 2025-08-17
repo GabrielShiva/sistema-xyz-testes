@@ -45,7 +45,8 @@ add_executable(controle_motor
     # joystick_control.c
     # joystick_control_v2.c
     # joystick_control_v3.c
-    joystick_control_v4.c
+    # joystick_control_v4.c
+    joystick_control_v5.c
     # run_motor_with_timer.c
     # homing.c
     # test_acceleration_2.c

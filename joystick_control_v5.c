@@ -64,7 +64,7 @@ bool command_ready = false;
 
 // System state variables
 system_state_t current_state = STATE_JOYSTICK;
-uint8_t active_motor_count = 2;
+uint8_t active_motor_count = 1;
 
 // Declaração de funções
 int64_t alarm_irq_handler(alarm_id_t id, void *user_data);
@@ -80,7 +80,7 @@ void parse_speed_command(const char* params);
 void parse_mode_command(const char* params);
 void parse_motors_command(const char* params);
 void parse_moveto_command(const char* params);
-void parse_setzero_command(void);
+void parse_setzero_command(const char* params);
 void send_state_update(void);
 void send_position_update(void);
 void stop_all_motors(void);
@@ -162,6 +162,9 @@ int main (void) {
             uint16_t reading = adc_read();
             int delta = (int)reading - (int)joystick_center;
 
+            // Control the first motor (motor 0) with joystick
+            stepper_motor_t *m0 = &steppers[0];
+
             if (abs(delta) <= (int)DEADZONE) {
                 // within deadzone -> ensure motor is stopped
                 if (m0->alarm_active) {
@@ -202,8 +205,63 @@ int main (void) {
                 }
             }
 
-            // Send data only in joystick mode
-            printf("DATA,%u,%d,%.1f\n", reading, m0->dir, m0->actual_step_interval);
+            // For second motor in joystick mode, you have several options:
+            // Option 1: Mirror motor 0 (same direction, same speed)
+            if (active_motor_count >= 2) {
+                stepper_motor_t *m1 = &steppers[1];
+
+                if (abs(delta) <= (int)DEADZONE) {
+                    // Stop motor 1 when joystick is in deadzone
+                    if (m1->alarm_active) {
+                        stop_motor(m1);
+                    }
+                } else {
+                    // Mirror motor 0's behavior
+                    m1->dir = m0->dir;
+                    gpio_put(m1->dir_pin, gpio_get(m0->dir_pin));
+                    m1->actual_step_interval = m0->actual_step_interval;
+                    m1->half_period_interval = m0->half_period_interval;
+
+                    if (!m1->alarm_active) {
+                        start_motor_continuous(m1);
+                    }
+                }
+            }
+
+            // Option 2: Alternative - Opposite direction for motor 1
+            // Uncomment this section instead of Option 1 if you want opposite motion
+            /*
+            if (active_motor_count >= 2) {
+                stepper_motor_t *m1 = &steppers[1];
+
+                if (abs(delta) <= (int)DEADZONE) {
+                    if (m1->alarm_active) {
+                        stop_motor(m1);
+                    }
+                } else {
+                    // Opposite direction from motor 0
+                    m1->dir = -m0->dir;
+                    gpio_put(m1->dir_pin, !gpio_get(m0->dir_pin));
+                    m1->actual_step_interval = m0->actual_step_interval;
+                    m1->half_period_interval = m0->half_period_interval;
+
+                    if (!m1->alarm_active) {
+                        start_motor_continuous(m1);
+                    }
+                }
+            }
+            */
+
+            // Only send data if there's significant change
+            static uint16_t last_reading = 0;
+            static float last_interval = 0;
+
+            if (abs((int)reading - (int)last_reading) > 10 ||
+                fabs(m0->actual_step_interval - last_interval) > 50.0f) {
+                printf("DATA,%u,%d,%.1f\n", reading, m0->dir, m0->actual_step_interval);
+                last_reading = reading;
+                last_interval = m0->actual_step_interval;
+            }
         } else {
             // In command mode, send minimal data or status
             // You can modify this based on what data you want to send in command mode
@@ -212,12 +270,12 @@ int main (void) {
 
         // Send periodic position updates (every 100 loops = ~1 second)
         static int position_update_counter = 0;
-        if (++position_update_counter >= 100) {
+        if (++position_update_counter >= 200) {
             send_position_update();
             position_update_counter = 0;
         }
 
-        sleep_ms(10); // 50 Hz loop rate
+        sleep_ms(20);
     }
 
     return 0;
@@ -429,7 +487,7 @@ void process_serial_input(void) {
     }
 }
 
-// Main command handler
+// Update your existing handle_command function to properly handle SETZERO with parameters:
 void handle_command(const char* command) {
     printf("Received command: %s\n", command);
 
@@ -448,7 +506,6 @@ void handle_command(const char* command) {
         parse_speed_command(command + 6);
     }
     else if (strcmp(command, "STOP") == 0) {
-        // Emergency stop works in any mode
         stop_all_motors();
         printf("ACK,Emergency stop executed\n");
     }
@@ -465,21 +522,30 @@ void handle_command(const char* command) {
         }
         parse_moveto_command(command + 7);
     }
-    else if (strcmp(command, "SETZERO") == 0) {
+    else if (strncmp(command, "SETZERO", 7) == 0) {
         if (current_state != STATE_COMMAND) {
             printf("ERROR,Cannot set zero position in joystick mode\n");
             return;
         }
-        parse_setzero_command();
+        // Check if there are parameters after SETZERO
+        if (strlen(command) > 7 && command[7] == ',') {
+            parse_setzero_command(command + 8);
+        } else {
+            parse_setzero_command(NULL);
+        }
     }
     else if (strcmp(command, "STATUS") == 0) {
-        // Send status information
-        stepper_motor_t *m0 = &steppers[0];
-        printf("STATUS,%d,%d,%d,%.1f\n",
-               (int)m0->step_position,
-               m0->alarm_active ? 1 : 0,
-               m0->dir,
-               m0->actual_step_interval);
+        // Send status information for all active motors
+        printf("STATUS");
+        for (uint i = 0; i < active_motor_count && i < 3; i++) {
+            stepper_motor_t *motor = &steppers[i];
+            printf(",%d,%d,%d,%.1f",
+                   (int)motor->step_position,
+                   motor->alarm_active ? 1 : 0,
+                   motor->dir,
+                   motor->actual_step_interval);
+        }
+        printf("\n");
         send_state_update();
     }
     else {
@@ -487,28 +553,55 @@ void handle_command(const char* command) {
     }
 }
 
-// Parse MOVE command: MOVE,<steps>
+// Replace your existing parse_move_command function with this:
 void parse_move_command(const char* params) {
-    int steps = atoi(params);
-    stepper_motor_t *m0 = &steppers[0]; // For now, only control motor 0
+    char* param_copy = malloc(strlen(params) + 1);
+    strcpy(param_copy, params);
+
+    char* first_param = strtok(param_copy, ",");
+    char* second_param = strtok(NULL, ",");
+
+    int motor_id = 0;
+    int steps = 0;
+
+    if (second_param) {
+        // Two parameters: motor_id, steps
+        motor_id = atoi(first_param);
+        steps = atoi(second_param);
+    } else {
+        // One parameter: steps (default to motor 0)
+        steps = atoi(first_param);
+    }
+
+    if (motor_id < 0 || motor_id >= (int)active_motor_count || motor_id >= 3) {
+        printf("ERROR,Invalid motor ID: %d\n", motor_id);
+        free(param_copy);
+        return;
+    }
+
+    stepper_motor_t *motor = &steppers[motor_id];
 
     // Stop current movement if any
-    if (m0->alarm_active) {
-        stop_motor(m0);
-        sleep_ms(10); // Small delay to ensure stop
+    if (motor->alarm_active) {
+        stop_motor(motor);
+        sleep_ms(10);
     }
 
-    printf("ACK,Moving %d steps\n", steps);
+    printf("ACK,Motor %d moving %d steps\n", motor_id, steps);
 
     if (steps != 0) {
-        move_n_steps(m0, steps);
+        move_n_steps(motor, steps);
 
         // Wait for movement to complete
-        while (!m0->movement_done && m0->alarm_active) {
+        while (!motor->movement_done && motor->alarm_active) {
             sleep_ms(1);
         }
-        printf("ACK,Movement completed\n");
+        printf("ACK,Motor %d movement completed at position %d\n",
+               motor_id, (int)motor->step_position);
     }
+
+    send_position_update();
+    free(param_copy);
 }
 
 // Parse SPEED command: SPEED,<interval_us>
@@ -571,64 +664,147 @@ void parse_motors_command(const char* params) {
     }
 }
 
-// Parse MOVETO command: MOVETO,<position>,<wait>
+// Replace your existing parse_moveto_command function with this:
 void parse_moveto_command(const char* params) {
-    // Parse parameters: position,wait_flag
     char* param_copy = malloc(strlen(params) + 1);
     strcpy(param_copy, params);
 
-    char* pos_str = strtok(param_copy, ",");
-    char* wait_str = strtok(NULL, ",");
+    // Parse parameters in pairs: motor_id, position, motor_id, position, ..., wait_flag
+    char* tokens[10]; // Max 4 motors * 2 params + wait flag
+    int token_count = 0;
 
-    if (!pos_str) {
-        printf("ERROR,Invalid MOVETO parameters\n");
+    char* token = strtok(param_copy, ",");
+    while (token && token_count < 10) {
+        tokens[token_count++] = token;
+        token = strtok(NULL, ",");
+    }
+
+    if (token_count < 3 || token_count % 2 == 0) {
+        printf("ERROR,Invalid MOVETO parameters. Format: motor_id,position[,motor_id,position],wait\n");
         free(param_copy);
         return;
     }
 
-    int32_t target_position = atoi(pos_str);
-    bool wait_for_completion = (wait_str && atoi(wait_str) == 1);
+    // Last token is wait flag
+    bool wait_for_completion = (atoi(tokens[token_count - 1]) == 1);
+    int motor_move_count = (token_count - 1) / 2;
 
-    stepper_motor_t *m0 = &steppers[0]; // For now, control motor 0
+    // Validate motor IDs and prepare movements
+    typedef struct {
+        int motor_id;
+        int32_t target_position;
+    } motor_move_t;
 
-    // Stop current movement if any
-    if (m0->alarm_active) {
-        stop_motor(m0);
-        sleep_ms(10);
+    motor_move_t moves[3];
+    int valid_moves = 0;
+
+    for (int i = 0; i < motor_move_count; i++) {
+        int motor_id = atoi(tokens[i * 2]);
+        int32_t position = atoi(tokens[i * 2 + 1]);
+
+        if (motor_id < 0 || motor_id >= (int)active_motor_count || motor_id >= 3) {
+            printf("ERROR,Invalid motor ID: %d (valid range: 0-%d)\n",
+                   motor_id, active_motor_count - 1);
+            free(param_copy);
+            return;
+        }
+
+        moves[valid_moves].motor_id = motor_id;
+        moves[valid_moves].target_position = position;
+        valid_moves++;
     }
 
-    printf("ACK,Moving to position %d (wait=%s)\n",
-           target_position, wait_for_completion ? "true" : "false");
+    // Stop all motors that will be moved
+    for (int i = 0; i < valid_moves; i++) {
+        stepper_motor_t *motor = &steppers[moves[i].motor_id];
+        if (motor->alarm_active) {
+            stop_motor(motor);
+        }
+    }
 
-    // Use the move_to_position function
-    move_to_position(m0, target_position, wait_for_completion);
+    sleep_ms(10); // Small delay to ensure all motors stop
 
+    printf("ACK,Moving %d motors to specified positions (wait=%s)\n",
+           valid_moves, wait_for_completion ? "true" : "false");
+
+    // Start all movements simultaneously
+    for (int i = 0; i < valid_moves; i++) {
+        stepper_motor_t *motor = &steppers[moves[i].motor_id];
+        int32_t steps = moves[i].target_position - (int32_t)motor->step_position;
+
+        printf("ACK,Motor %d: %d -> %d (%d steps)\n",
+               moves[i].motor_id,
+               (int)motor->step_position,
+               moves[i].target_position,
+               steps);
+
+        if (steps != 0) {
+            move_n_steps(motor, steps);
+        }
+    }
+
+    // Wait for all movements to complete if requested
     if (wait_for_completion) {
-        printf("ACK,Position reached: %d\n", (int)m0->step_position);
+        bool all_done = false;
+        while (!all_done) {
+            all_done = true;
+            for (int i = 0; i < valid_moves; i++) {
+                stepper_motor_t *motor = &steppers[moves[i].motor_id];
+                if (motor->alarm_active && !motor->movement_done) {
+                    all_done = false;
+                    break;
+                }
+            }
+            if (!all_done) {
+                sleep_ms(1);
+            }
+        }
+
+        printf("ACK,All movements completed\n");
+        for (int i = 0; i < valid_moves; i++) {
+            printf("ACK,Motor %d final position: %d\n",
+                   moves[i].motor_id,
+                   (int)steppers[moves[i].motor_id].step_position);
+        }
     }
 
-    // Send position update
+    // Send position update for all motors
     send_position_update();
 
     free(param_copy);
 }
 
-// Parse SETZERO command: set current position as zero
-void parse_setzero_command(void) {
-    // Set current position as zero for all active motors
-    for (uint i = 0; i < active_motor_count && i < 3; i++) {
-        steppers[i].step_position = 0;
+// Replace your existing parse_setzero_command function with this:
+void parse_setzero_command(const char* params) {
+    if (params && strlen(params) > 0) {
+        // SETZERO,<motor_id> - Set specific motor to zero
+        int motor_id = atoi(params);
+        if (motor_id >= 0 && motor_id < (int)active_motor_count && motor_id < 3) {
+            steppers[motor_id].step_position = 0;
+            printf("ACK,Motor %d position set to zero\n", motor_id);
+        } else {
+            printf("ERROR,Invalid motor ID: %d\n", motor_id);
+            return;
+        }
+    } else {
+        // SETZERO - Set all motors to zero
+        for (uint i = 0; i < active_motor_count && i < 3; i++) {
+            steppers[i].step_position = 0;
+        }
+        printf("ACK,All motor positions set to zero\n");
     }
 
-    printf("ACK,Current position set as zero\n");
     send_position_update();
 }
 
-// Send current position information
+// Replace your existing send_position_update function with this:
 void send_position_update(void) {
-    stepper_motor_t *m0 = &steppers[0];
-    // For now, we don't track target position separately, so send current as target
-    printf("POSITION,%d,%d\n", (int)m0->step_position, (int)m0->step_position);
+    // Send position data for all active motors
+    printf("POSITION");
+    for (uint i = 0; i < active_motor_count && i < 3; i++) {
+        printf(",%d", (int)steppers[i].step_position);
+    }
+    printf("\n");
 }
 
 // Send current state to GUI
