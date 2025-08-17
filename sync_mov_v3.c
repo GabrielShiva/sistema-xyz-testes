@@ -152,6 +152,14 @@ stepper_motor_t steppers[3] = {
     { .pin_dir = 17, .pin_step = 16, .pin_ms1 = 13, .pin_ms2 = 14, .pin_ms3 = 15 }
 };
 
+/**
+ * FOR NON-BLOCKING SYNC
+ */
+/* Local tracking for the active synchronized group */
+static stepper_motor_t *sync_group_motors[3];
+static int32_t         sync_group_targets[3];
+static uint8_t         sync_group_count = 0;
+
 /* -------------------------
    Declaração das funções
    ------------------------- */
@@ -431,6 +439,108 @@ void start_synchronized_move(stepper_motor_t *motors[], uint8_t count, int32_t t
     }
 }
 
+/**
+ * @brief Start a synchronized move (non-blocking).
+ *
+ * motors: array of pointers to stepper_motor_t (length == count)
+ * count:  number of motors (1..3)
+ * targets: array of absolute target positions (same indexing as motors array)
+ *
+ * This function:
+ *  - computes relative steps,
+ *  - computes per-motor estimated times,
+ *  - computes speed_scale so all motors finish at the same time (scale >= 1),
+ *  - sets motor->speed_scale and starts each motor (non-blocking).
+ *
+ * Returns: 0 on success, -1 on invalid args.
+ */
+int start_synchronized_move_nb(stepper_motor_t *motors[], uint8_t count, int32_t targets[]) {
+    if (count == 0 || count > 3) return -1;
+
+    /* compute relative steps and estimates */
+    float maxTime = 0.0f;
+    int32_t relSteps[3] = {0,0,0};
+    uint32_t absSteps[3] = {0,0,0};
+
+    for (uint8_t i = 0; i < count; ++i) {
+        stepper_motor_t *m = motors[i];
+        if (!m) return -1;
+
+        /* Use signed arithmetic for current position (recommended to make position_steps signed) */
+        int32_t curr_pos = (int32_t)m->position_steps;
+        int32_t r = targets[i] - curr_pos;
+        relSteps[i] = r;
+        absSteps[i] = (uint32_t)(r < 0 ? -r : r);
+
+        compute_move_estimates(m, absSteps[i]);
+
+        if (m->est_time_for_move > maxTime) maxTime = m->est_time_for_move;
+    }
+
+    if (maxTime <= 0.0f) {
+        /* nothing to do - all zero moves */
+        sync_group_count = 0;
+        return 0;
+    }
+
+    /* prepare and store the group (so we can query/cancel later) */
+    for (uint8_t i = 0; i < count; ++i) {
+        sync_group_motors[i] = motors[i];
+        sync_group_targets[i] = targets[i];
+    }
+    sync_group_count = count;
+
+    /* compute and set speed_scale, then start moves (non-blocking) */
+    for (uint8_t i = 0; i < count; ++i) {
+        stepper_motor_t *m = motors[i];
+
+        if (absSteps[i] == 0) {
+            /* nothing to move: mark done */
+            m->speed_scale = 1.0f;
+            m->movement_complete = true;
+            continue;
+        }
+
+        float scale = maxTime / (m->est_time_for_move > 0.0f ? m->est_time_for_move : maxTime);
+        if (scale < 1.0f) scale = 1.0f;
+        m->speed_scale = scale;
+
+        /* now start the motor's motion non-blocking */
+        start_move_steps(m, relSteps[i]);
+    }
+
+    return 0;
+}
+
+/**
+ * @brief Query whether the last non-blocking synchronized group has finished.
+ *
+ * Returns true if no sync group is active or all motors in the group have movement_complete == true.
+ */
+bool is_synchronized_move_done(void) {
+    if (sync_group_count == 0) return true;
+
+    for (uint8_t i = 0; i < sync_group_count; ++i) {
+        stepper_motor_t *m = sync_group_motors[i];
+        if (!m) continue;
+        if (!is_movement_done(m)) return false;
+    }
+    return true;
+}
+
+/**
+ * @brief Cancel the currently active synchronized group (if any).
+ *
+ * Stops any motors in the sync group and clears the tracking.
+ */
+void cancel_synchronized_move(void) {
+    for (uint8_t i = 0; i < sync_group_count; ++i) {
+        stepper_motor_t *m = sync_group_motors[i];
+        if (!m) continue;
+        stop_move(m); /* cancels alarm and marks movement_complete */
+    }
+    sync_group_count = 0;
+}
 
 /* -------------------------
    Implementações
@@ -459,30 +569,65 @@ int main (void) {
     // /* -------------------------
     // Example 1: synchronized move for 2 motors
     // ------------------------- */
-    // /* Prepare pointers and absolute target positions (in steps). */
-    // stepper_motor_t *motors2[2] = { &steppers[0], &steppers[1] };
-
-    // /* Example: move motor0 -> 4608 steps, motor1 -> 6912 steps (absolute targets) */
-    // int32_t targets2[2];
-    // targets2[0] = 1536;
-    // targets2[1] = 384;
-
     // sleep_ms(5500);
 
-    // printf("Starting synchronized move (2 motors) to targets: %ld, %ld\n",
-    //        (long)targets2[0], (long)targets2[1]);
+    // /* vertices are absolute positions in steps (x, y) */
+    // int32_t xy[3][2] = {
+    //     {768, -2304},
+    //     {960, -1536},
+    //     {0, 0}
+    // };
 
-    // start_synchronized_move(motors2, 2, targets2);
+    // stepper_motor_t *motors2[2] = { &steppers[0], &steppers[1] };
+    // int32_t targets[2];
 
-    // printf("Synchronized move (2 motors) finished. positions: %ld, %ld\n",
-    //        (long)steppers[0].position_steps, (long)steppers[1].position_steps);
+    // for (uint8_t i = 0; i < 3; i++) {
+    //     /* target absolute positions for X and Y */
+    //     targets[0] = xy[i][0];
+    //     targets[1] = xy[i][1];
 
-    // sleep_ms(1000);
+    //     /* this call blocks until both motors reach their targets (synchronized) */
+    //     start_synchronized_move(motors2, 2, targets);
+
+    //     /* optional pause at vertex (adjust as needed) */
+    //     sleep_ms(2500);
+    // }
 
     // while (true) {
     //     tight_loop_contents();
     // }
 
+    //  /* -------------------------
+    //    Example 2: synchronized move for up to 3 motors (runs only if 3rd motor configured)
+    //    ------------------------- */
+    // sleep_ms(5500);
+    // if (STEP_COUNT >= 3 && (steppers[2].pin_step != 0 || steppers[2].pin_dir != 0)) {
+    //     stepper_motor_t *motors3[3] = { &steppers[0], &steppers[1], &steppers[2] };
+
+    //     /* Example targets (absolute). Adjust values as appropriate for your system. */
+    //     int32_t targets3[3];
+    //     targets3[0] = 0;    /* move motor0 back to 0 */
+    //     targets3[1] = 1536; /* move motor1 to some other absolute pos */
+    //     targets3[2] = 2400; /* motor2 configured? move to this position */
+
+    //     printf("Starting synchronized move (3 motors) to targets: %ld, %ld, %ld\n",
+    //            (long)targets3[0], (long)targets3[1], (long)targets3[2]);
+
+    //     start_synchronized_move(motors3, 3, targets3);
+
+    //     printf("Synchronized move (3 motors) finished. positions: %ld, %ld, %ld\n",
+    //            (long)steppers[0].position_steps,
+    //            (long)steppers[1].position_steps,
+    //            (long)steppers[2].position_steps);
+
+    //     sleep_ms(500);
+    // } else {
+    //     printf("Third motor not configured — skipping 3-motor demo.\n");
+    // }
+
+    //  /* -------------------------
+    //    Example : nonblocking synchronized move for up to 3 motors (runs only if 3rd motor configured)
+    //    ------------------------- */
     sleep_ms(5500);
 
     /* vertices are absolute positions in steps (x, y) */
@@ -492,28 +637,31 @@ int main (void) {
         {0, 0}
     };
 
-    // /* -------------------------
-    // Example 2: synchronized move for 2 motors
-    // ------------------------- */
-    /* Pointers to the two motors we want to move (X, Y) */
     stepper_motor_t *motors2[2] = { &steppers[0], &steppers[1] };
-    int32_t targets[2];
 
-    for (uint8_t i = 0; i < 3; i++) {
-        /* target absolute positions for X and Y */
-        targets[0] = xy[i][0];
-        targets[1] = xy[i][1];
+    for (int i = 0; i < 3; i++) {
+        int32_t targets[2];
+        targets[0] = xy[i][0];  // X absolute target
+        targets[1] = xy[i][1];  // Y absolute target
 
-        /* this call blocks until both motors reach their targets (synchronized) */
-        start_synchronized_move(motors2, 2, targets);
+        printf("Starting sync move to absolute targets: X=%ld Y=%ld\n",
+               (long)targets[0], (long)targets[1]);
 
-        /* optional pause at vertex (adjust as needed) */
-        sleep_ms(2500);
+        /* start non-blocking synchronized move */
+        start_synchronized_move_nb(motors2, 2, targets);
+
+        /* optionally do other tasks here; poll until move completes */
+        while (!is_synchronized_move_done()) {
+            tight_loop_contents(); /* keep CPU friendly while waiting */
+        }
+
+        printf("Reached targets: X=%ld Y=%ld (pos now: %ld, %ld)\n",
+               (long)targets[0], (long)targets[1],
+               (long)steppers[0].position_steps, (long)steppers[1].position_steps);
+
+        sleep_ms(200); /* small pause between moves */
     }
-
-    while (true) {
-        tight_loop_contents();
-    }
+    while(true) { tight_loop_contents(); };
 
     return 0;
 }
