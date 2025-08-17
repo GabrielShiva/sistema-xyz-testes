@@ -134,6 +134,9 @@ typedef struct {
      * Armazenado caso seja necessário cancelar ou verificar o alarme.
      */
     alarm_id_t timer_alarm_id;
+    volatile uint32_t est_steps_to_speed;   /* estimated steps required to reach min interval */
+    volatile float    est_time_for_move;    /* estimated total time (us) for the move */
+    volatile float    speed_scale;          /* >=1.0 : slows motor by this factor to sync */
 } stepper_motor_t;
 
 /**
@@ -292,6 +295,144 @@ void stop_move(stepper_motor_t *motor);
 void btn_irq(uint gpio, uint32_t events);
 
 /* -------------------------
+   Helper functions for synchronization
+   ------------------------- */
+
+/**
+ * @brief Estimate duration of the acceleration profile (unscaled).
+ *
+ * Uses the same recurrence you used in the IRQ to step the acceleration:
+ * d_{n+1} = d_n - (2*d_n) / (4*n + 1)
+ *
+ * Returns total duration (sum of d) for `numSteps` steps using initial d = motor->initial_step_interval_us.
+ */
+static float get_duration_of_acceleration(stepper_motor_t *m, uint32_t numSteps) {
+    if (numSteps == 0) return 0.0f;
+    float d = m->initial_step_interval_us;
+    float total = 0.0f;
+    /* recurrence: start at n = 1 (matching the Arduino code loop) */
+    for (uint32_t n = 1; n < numSteps; ++n) {
+        d = d - (2.0f * d) / (4.0f * (float)n + 1.0f);
+        total += d;
+        /* safety: avoid negative/zero d */
+        if (d <= 0.0f) { d = m->min_step_interval_us; break; }
+    }
+    return total;
+}
+
+/**
+ * @brief Compute estimated steps-to-speed and estimated total time for a move.
+ *
+ * Stores estimates in motor->est_steps_to_speed and motor->est_time_for_move (microseconds).
+ * The formulas are a direct port of the Arduino version in your example.
+ */
+static void compute_move_estimates(stepper_motor_t *m, uint32_t stepsAbs) {
+    /* initial parameters */
+    float c0 = m->initial_step_interval_us;
+    float a = (float)m->min_step_interval_us / c0;
+    a *= 0.676f;
+
+    /* estimate steps to reach max speed */
+    float mval = ((a * a - 1.0f) / (-2.0f * a));
+    float nval = mval * mval;
+    uint32_t estSteps = (uint32_t) (nval > 0.0f ? (uint32_t)nval : 0);
+
+    m->est_steps_to_speed = estSteps;
+
+    if (stepsAbs == 0) {
+        m->est_time_for_move = 0.0f;
+        return;
+    }
+
+    if ((2u * m->est_steps_to_speed) < stepsAbs) {
+        uint32_t stepsAtFullSpeed = stepsAbs - 2u * m->est_steps_to_speed;
+        float accelDecelTime = get_duration_of_acceleration(m, m->est_steps_to_speed);
+        m->est_time_for_move = 2.0f * accelDecelTime + stepsAtFullSpeed * (float)m->min_step_interval_us;
+    } else {
+        uint32_t half = stepsAbs / 2u;
+        float accelDecelTime = get_duration_of_acceleration(m, half);
+        m->est_time_for_move = 2.0f * accelDecelTime;
+    }
+}
+
+/**
+ * @brief Start a synchronized move for up to `count` motors.
+ *
+ * motors: array of pointers to stepper_motor_t
+ * count: number of motors to move (<= 3 in your use-case)
+ * targets: array of absolute target positions (same indexing as motors array)
+ *
+ * The function:
+ * 1) computes relative steps for each motor
+ * 2) estimates times
+ * 3) computes a speed_scale for each motor so all motors' estimated times equal the max
+ * 4) sets each motor->speed_scale and calls start_move_to (which internally calls move_n_steps)
+ * 5) blocks until all motors report movement_complete
+ */
+void start_synchronized_move(stepper_motor_t *motors[], uint8_t count, int32_t targets[]) {
+    if (count == 0) return;
+
+    /* 1) compute relative steps and estimates */
+    float maxTime = 0.0f;
+    int32_t relSteps[3] = {0,0,0};
+    uint32_t absSteps[3] = {0,0,0};
+
+    for (uint8_t i = 0; i < count; ++i) {
+        stepper_motor_t *m = motors[i];
+        /* compute relative steps using signed arithmetic */
+        int32_t current_pos = (int32_t) m->position_steps; /* consider changing position_steps to int32_t */
+        int32_t r = targets[i] - current_pos;
+        relSteps[i] = r;
+        absSteps[i] = (uint32_t) (r < 0 ? -r : r);
+
+        /* compute estimates for this candidate move */
+        compute_move_estimates(m, absSteps[i]);
+        if (m->est_time_for_move > maxTime) maxTime = m->est_time_for_move;
+    }
+
+    if (maxTime <= 0.0f) {
+        /* nothing to do - all zero moves */
+        return;
+    }
+
+    /* 2) set speed_scale and start moves */
+    for (uint8_t i = 0; i < count; ++i) {
+        stepper_motor_t *m = motors[i];
+        if (absSteps[i] == 0) {
+            /* no move for this motor */
+            m->speed_scale = 1.0f;
+            continue;
+        }
+        /* ensure we don't try to accelerate faster than min: scale >= 1 */
+        float scale = maxTime / (m->est_time_for_move > 0.0f ? m->est_time_for_move : maxTime);
+        if (scale < 1.0f) scale = 1.0f;
+        m->speed_scale = scale;
+    }
+
+    /* 3) start moves (speed_scale is used inside move_n_steps / alarm handler) */
+    for (uint8_t i = 0; i < count; ++i) {
+        stepper_motor_t *m = motors[i];
+        if (relSteps[i] != 0) {
+            start_move_steps(m, relSteps[i]); /* non-blocking */
+        } else {
+            /* mark immediately done */
+            m->movement_complete = true;
+        }
+    }
+
+    /* 4) wait until all done */
+    bool all_done = false;
+    while (!all_done) {
+        all_done = true;
+        for (uint8_t i = 0; i < count; ++i) {
+            if (!is_movement_done(motors[i])) { all_done = false; break; }
+        }
+        tight_loop_contents();
+    }
+}
+
+
+/* -------------------------
    Implementações
    ------------------------- */
 
@@ -305,6 +446,7 @@ int main (void) {
     gpio_set_irq_enabled_with_callback(BTN_CONTROL, GPIO_IRQ_EDGE_FALL, true, &btn_irq);
 
     repeating_timer_t led_timer;
+    add_repeating_timer_ms(500, led_callback, NULL, &led_timer);
 
     /* Inicializa os motores */
     for (uint i = 0; i < 2; i++) {
@@ -314,112 +456,63 @@ int main (void) {
     const int MOTOR_STEPS = 48;
     int32_t steps_per_rev = MOTOR_STEPS * 16; /* 768 passos/rev */
 
-    /* Exemplo de configuração inicial (comentado) */
-    /* steppers[0].initial_step_interval_us = 4000.0f; // 4 ms entre passos no início */
-    // steppers[0].min_step_interval_us = 3000; // não acelera além de 1 ms por passo
+    // /* -------------------------
+    // Example 1: synchronized move for 2 motors
+    // ------------------------- */
+    // /* Prepare pointers and absolute target positions (in steps). */
+    // stepper_motor_t *motors2[2] = { &steppers[0], &steppers[1] };
 
-    /* Cria instância do timer para o LED */
-    add_repeating_timer_ms(500, led_callback, NULL, &led_timer);
+    // /* Example: move motor0 -> 4608 steps, motor1 -> 6912 steps (absolute targets) */
+    // int32_t targets2[2];
+    // targets2[0] = 1536;
+    // targets2[1] = 384;
 
-    sleep_ms(5000);
-    printf("Iniciando demo para 3 motores...\n");
+    // sleep_ms(5500);
 
-    // mov_state = false;
+    // printf("Starting synchronized move (2 motors) to targets: %ld, %ld\n",
+    //        (long)targets2[0], (long)targets2[1]);
+
+    // start_synchronized_move(motors2, 2, targets2);
+
+    // printf("Synchronized move (2 motors) finished. positions: %ld, %ld\n",
+    //        (long)steppers[0].position_steps, (long)steppers[1].position_steps);
+
+    // sleep_ms(1000);
+
+    // while (true) {
+    //     tight_loop_contents();
+    // }
+
+    sleep_ms(5500);
+
+    /* vertices are absolute positions in steps (x, y) */
+    int32_t xy[3][2] = {
+        {768, -2304},
+        {960, -1536},
+        {0, 0}
+    };
+
+    // /* -------------------------
+    // Example 2: synchronized move for 2 motors
+    // ------------------------- */
+    /* Pointers to the two motors we want to move (X, Y) */
+    stepper_motor_t *motors2[2] = { &steppers[0], &steppers[1] };
+    int32_t targets[2];
+
+    for (uint8_t i = 0; i < 3; i++) {
+        /* target absolute positions for X and Y */
+        targets[0] = xy[i][0];
+        targets[1] = xy[i][1];
+
+        /* this call blocks until both motors reach their targets (synchronized) */
+        start_synchronized_move(motors2, 2, targets);
+
+        /* optional pause at vertex (adjust as needed) */
+        sleep_ms(2500);
+    }
 
     while (true) {
-        // --------- TESTE PARA MOVIMENTAR DOIS MOTORES AO MESMO TEMPO
-        start_move_to(&steppers[0], 4608);
-        start_move_to(&steppers[1], 6912);
-
-        while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
-            tight_loop_contents();
-        }
-
-        while(true);
-
-        // --------- TESTE PARA PARAR O MOTOR
-        // start_move_to(&steppers[0], 10000);
-        // while (!is_movement_done(&steppers[0])) {
-        //     if (mov_state) {
-        //         stop_move(&steppers[0]);
-        //         while (true);
-        //     }
-        // }
-        // while (true);
-
-        // --------- TESTE PARA DEFINIÇÃO DE NOVA REFERÊNCIA DO MOTOR (ponto zero)
-        // start_move_to(&steppers[0], 576);
-
-        // while (!is_movement_done(&steppers[0])) {
-        //     tight_loop_contents();
-        // }
-
-        // sleep_ms(2000);
-
-        // set_motor_reference(&steppers[0]);
-
-        // start_move_to(&steppers[0], -576);
-
-        // while (!is_movement_done(&steppers[0])) {
-        //     tight_loop_contents();
-        // }
-
-        // sleep_ms(2000);
-
-        // start_move_to(&steppers[0], 0);
-
-        // while (!is_movement_done(&steppers[0])) {
-        //     tight_loop_contents();
-        // }
-
-        // while(true);
-
-
-        // --------- TESTE PARA MOVIMENTAR DOIS MOTORES
-        // start_move_to(&steppers[0], 192);
-        // start_move_to(&steppers[1], 192);
-
-        // while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
-        //     tight_loop_contents();
-        // }
-
-        // /* Agenda movimentos para 384 passos */
-        // start_move_to(&steppers[0], 384);
-        // start_move_to(&steppers[1], 384);
-
-        // while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
-        //     tight_loop_contents();
-        // }
-
-        // /* Agenda movimentos para 576 passos */
-        // start_move_to(&steppers[0], 576);
-        // start_move_to(&steppers[1], 576);
-
-        // while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
-        //     tight_loop_contents();
-        // }
-
-        // /* Agenda movimentos para 768 passos */
-        // start_move_to(&steppers[0], 768);
-        // start_move_to(&steppers[1], 768);
-
-        // while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
-        //     tight_loop_contents();
-        // }
-
-        // sleep_ms(1500);
-
-        // /* Volta para a posição 0 (ambos motores) */
-        // start_move_to(&steppers[0], 0);
-        // start_move_to(&steppers[1], 0);
-
-        // while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
-        //     tight_loop_contents();
-        // }
-
-        // printf("Todos os motores executaram os movimentos!\n");
-
-        // while (true);
+        tight_loop_contents();
     }
 
     return 0;
@@ -451,7 +544,10 @@ int64_t alarm_irq_handler(alarm_id_t id, void *user_data) {
         gpio_put(motor->pin_step, 1);
         motor->step_pin_state = true;
 
-        return (int64_t)motor->half_step_interval_us;
+        /* scale applied when returning */
+        int64_t out = (int64_t)(motor->half_step_interval_us * motor->speed_scale);
+        if (out <= 0) out = (int64_t)motor->half_step_interval_us;
+        return out;
     } else {
         /* Produz um nível lógico alto */
         gpio_put(motor->pin_step, 0);
@@ -480,7 +576,11 @@ int64_t alarm_irq_handler(alarm_id_t id, void *user_data) {
 
         /* Computa o próximo meio-período */
         motor->half_step_interval_us = motor->current_step_interval_us * 0.5f;
-        return (int64_t)motor->half_step_interval_us;
+
+        /* apply speed_scale to returned delay */
+        int64_t out = (int64_t)(motor->half_step_interval_us * motor->speed_scale);
+        if (out <= 0) out = (int64_t)motor->half_step_interval_us;
+        return out;
     }
 }
 
@@ -522,6 +622,11 @@ void init_stepper_motor(stepper_motor_t *motor) {
     motor->ramp_steps               = 0;
     motor->accel_counter            = 0;
     motor->direction                = 0;
+
+    /* NEW: sync helpers */
+    motor->est_steps_to_speed = 0;
+    motor->est_time_for_move = 0.0f;
+    motor->speed_scale = 1.0f;
 }
 
 void move_n_steps(stepper_motor_t *motor, int32_t steps) {
@@ -540,8 +645,10 @@ void move_n_steps(stepper_motor_t *motor, int32_t steps) {
     motor->direction = steps > 0 ? 1 : -1;
     gpio_put(motor->pin_dir, steps < 0 ? 1 : 0);
 
-    /* Agenda o alarme para o primeiro pulso */
-    motor->timer_alarm_id = add_alarm_in_us((int64_t)motor->half_step_interval_us, alarm_irq_handler, motor, false);
+    /* Agenda o alarme para o primeiro pulso (apply speed_scale) */
+    int64_t delay_us = (int64_t)(motor->half_step_interval_us * motor->speed_scale);
+    if (delay_us <= 0) delay_us = (int64_t) motor->half_step_interval_us;
+    motor->timer_alarm_id = add_alarm_in_us(delay_us, alarm_irq_handler, motor, false);
 }
 
 void move_to_position(stepper_motor_t *motor, int32_t target, bool wait) {

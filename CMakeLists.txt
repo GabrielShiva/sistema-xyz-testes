@@ -43,7 +43,8 @@ add_executable(controle_motor
     # linear_accel_timer_parallel.c
     # multiple_motors_control.c
     # sync_mov_v1.c
-    sync_mov_v2.c
+    # sync_mov_v2.c
+    sync_mov_v3.c
     # joystick_control.c
     # joystick_control_v2.c
     # joystick_control_v3.c
