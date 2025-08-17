@@ -583,27 +583,19 @@ void wait_until_stop(stepper_motor_t *motor) {
 void set_motor_reference(stepper_motor_t *motor) {
     if (!motor) return;
 
-    // uint32_t irq_state = save_and_disable_interrupts();
-
     motor->position_steps   = 0;
     motor->steps_executed   = 0;
     motor->steps_total      = 0;
     motor->ramp_steps       = 0;
     motor->accel_counter    = 0;
-    motor->movement_complete = true; // assume que não há movimento em andamento
-
-    // restore_interrupts(irq_state);
+    motor->movement_complete = true;
 }
 
 void stop_move(stepper_motor_t *motor) {
     if (!motor) return;
-    // uint32_t irq_state = save_and_disable_interrupts();
-
     cancel_alarm(motor->timer_alarm_id);
 
     motor->movement_complete = true;
     motor->step_pin_state = false;
     gpio_put(motor->pin_step, 0);
-
-    // restore_interrupts(irq_state);
 }
