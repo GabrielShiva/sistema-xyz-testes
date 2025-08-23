@@ -469,7 +469,6 @@ void process_serial_input(void) {
     }
 }
 
-// Update your existing handle_command function to properly handle SETZERO with parameters:
 void handle_command(const char* command) {
     printf("COMANDO RECEBIDO: %s\n", command);
 
