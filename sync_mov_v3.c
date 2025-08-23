@@ -659,7 +659,7 @@ int main (void) {
                (long)targets[0], (long)targets[1],
                (long)steppers[0].position_steps, (long)steppers[1].position_steps);
 
-        sleep_ms(200); /* small pause between moves */
+        sleep_ms(2000); /* small pause between moves */
     }
     while(true) { tight_loop_contents(); };
 

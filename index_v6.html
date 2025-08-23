@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dual Axis Stepper Motor Control</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/apexcharts/3.44.0/apexcharts.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            background: #1e1e1e;
+            color: #dcdcdc;
+            overflow: hidden;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+
+        .charts-panel {
+            width: 60%;
+            padding: 10px;
+            border-right: 2px solid #404040;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chart-container {
+            flex: 1;
+            background: #252526;
+            border: 1px solid #404040;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            padding: 15px;
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.3);
+        }
+
+        .chart-container:last-child {
+            margin-bottom: 0;
+        }
+
+        .chart-title {
+            color: #569cd6;
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-align: center;
+            padding: 5px;
+            background: #2d2d30;
+            border-radius: 3px;
+        }
+
+        .control-panel {
+            width: 40%;
+            padding: 20px;
+            background: #2d2d30;
+            overflow-y: auto;
+        }
+
+        .section {
+            background: #252526;
+            border: 1px solid #404040;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .section-header {
+            background: #3c3c3c;
+            padding: 10px 15px;
+            border-bottom: 1px solid #404040;
+            font-weight: bold;
+            color: #dcdcdc;
+            font-size: 13px;
+        }
+
+        .section-content {
+            padding: 15px;
+        }
+
+        .button {
+            background: linear-gradient(180deg, #505050 0%, #404040 100%);
+            border: 1px solid #606060;
+            border-radius: 3px;
+            color: #dcdcdc;
+            padding: 8px 16px;
+            font-family: inherit;
+            font-size: 12px;
+            cursor: pointer;
+            margin: 3px;
+            transition: all 0.1s;
+        }
+
+        .button:hover {
+            background: linear-gradient(180deg, #606060 0%, #505050 100%);
+            border-color: #707070;
+        }
+
+        .button:active {
+            background: linear-gradient(180deg, #404040 0%, #505050 100%);
+            transform: translateY(1px);
+        }
+
+        .button.primary {
+            background: linear-gradient(180deg, #0078d4 0%, #106ebe 100%);
+            border-color: #1a8cff;
+        }
+
+        .button.primary:hover {
+            background: linear-gradient(180deg, #1a8cff 0%, #0078d4 100%);
+        }
+
+        .button.danger {
+            background: linear-gradient(180deg, #dc3545 0%, #c82333 100%);
+            border-color: #e74c3c;
+        }
+
+        .button.danger:hover {
+            background: linear-gradient(180deg, #e74c3c 0%, #dc3545 100%);
+        }
+
+        .input-group {
+            margin: 8px 0;
+        }
+
+        .input-label {
+            display: block;
+            margin-bottom: 4px;
+            color: #cccccc;
+            font-size: 12px;
+        }
+
+        .input {
+            background: #3c3c3c;
+            border: 1px solid #5a5a5a;
+            border-radius: 3px;
+            color: #dcdcdc;
+            padding: 6px 8px;
+            font-family: inherit;
+            font-size: 12px;
+            width: 100%;
+        }
+
+        .input:focus {
+            outline: none;
+            border-color: #007acc;
+            box-shadow: 0 0 0 1px #007acc;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+
+        .status-connected {
+            background: #4caf50;
+            box-shadow: 0 0 4px #4caf50;
+        }
+
+        .status-disconnected {
+            background: #f44336;
+        }
+
+        .status-line {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+            font-size: 12px;
+        }
+
+        .data-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .data-grid-4col {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .data-item {
+            background: #3c3c3c;
+            padding: 8px;
+            border-radius: 3px;
+            border: 1px solid #5a5a5a;
+        }
+
+        .data-label {
+            font-size: 10px;
+            color: #999;
+            text-transform: uppercase;
+        }
+
+        .data-value {
+            font-size: 14px;
+            font-weight: bold;
+            color: #dcdcdc;
+        }
+
+        .log-container {
+            background: #1e1e1e;
+            border: 1px solid #404040;
+            border-radius: 3px;
+            height: 120px;
+            overflow-y: auto;
+            padding: 8px;
+            font-size: 11px;
+            font-family: 'Consolas', monospace;
+        }
+
+        .log-entry {
+            margin: 2px 0;
+            color: #cccccc;
+        }
+
+        .log-entry.error {
+            color: #f44336;
+        }
+
+        .log-entry.info {
+            color: #2196f3;
+        }
+
+        .log-entry.success {
+            color: #4caf50;
+        }
+
+        /* Dual motor position control styles */
+        .dual-motor-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 10px;
+        }
+
+        .motor-control-group {
+            background: #3c3c3c;
+            padding: 12px;
+            border-radius: 4px;
+            border: 1px solid #5a5a5a;
+        }
+
+        .motor-control-header {
+            font-weight: bold;
+            color: #569cd6;
+            margin-bottom: 8px;
+            font-size: 12px;
+            text-align: center;
+        }
+
+        .position-display-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+
+        .quick-actions {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .quick-actions .button {
+            flex: 1;
+            min-width: 80px;
+        }
+
+        .axis-color-x {
+            color: #00d4ff;
+        }
+
+        .axis-color-y {
+            color: #ff6b6b;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="charts-panel">
+            <div class="chart-container">
+                <div class="chart-title">Joystick X & Y Axis Readings</div>
+                <div id="joystick-chart"></div>
+            </div>
+            <div class="chart-container">
+                <div class="chart-title">Motor Step Intervals (μs)</div>
+                <div id="interval-chart"></div>
+            </div>
+        </div>
+
+        <div class="control-panel">
+            <div class="section">
+                <div class="section-header">System State</div>
+                <div class="section-content">
+                    <div class="status-line">
+                        <span class="status-indicator" id="state-indicator"></span>
+                        <span id="state-text">Unknown</span>
+                    </div>
+                    <button class="button" id="joystick-mode-btn">Joystick Mode</button>
+                    <button class="button" id="command-mode-btn">Command Mode</button>
+                    <div class="input-group" style="margin-top: 10px;">
+                        <label class="input-label">Active Motors (1-3)</label>
+                        <input type="number" class="input" id="motor-count-input" min="1" max="3" value="2">
+                        <button class="button" id="set-motors-btn" style="margin-top: 5px;">Set Motor Count</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-header">Connection</div>
+                <div class="section-content">
+                    <div class="status-line">
+                        <span class="status-indicator" id="connection-status"></span>
+                        <span id="connection-text">Disconnected</span>
+                    </div>
+                    <button class="button primary" id="connect-btn">Connect Serial</button>
+                    <button class="button danger" id="disconnect-btn" disabled>Disconnect</button>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-header">Live Dual-Axis Data</div>
+                <div class="section-content">
+                    <div class="data-grid-4col">
+                        <div class="data-item">
+                            <div class="data-label axis-color-x">X-Axis (M0)</div>
+                            <div class="data-value" id="joystick-x-value">0</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label axis-color-y">Y-Axis (M1)</div>
+                            <div class="data-value" id="joystick-y-value">0</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label axis-color-x">M0 Dir</div>
+                            <div class="data-value" id="motor0-dir-value">0</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label axis-color-y">M1 Dir</div>
+                            <div class="data-value" id="motor1-dir-value">0</div>
+                        </div>
+                    </div>
+                    <div class="data-grid">
+                        <div class="data-item">
+                            <div class="data-label axis-color-x">M0 Interval (μs)</div>
+                            <div class="data-value" id="motor0-interval-value">0.0</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label axis-color-y">M1 Interval (μs)</div>
+                            <div class="data-value" id="motor1-interval-value">0.0</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label axis-color-x">M0 Speed (Hz)</div>
+                            <div class="data-value" id="motor0-speed-value">0</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label axis-color-y">M1 Speed (Hz)</div>
+                            <div class="data-value" id="motor1-speed-value">0</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-header">Dual Motor Position Control</div>
+                <div class="section-content">
+                    <!-- Position Display for All Motors -->
+                    <div class="position-display-grid" id="position-display-grid">
+                        <!-- Dynamic position displays will be inserted here -->
+                    </div>
+
+                    <!-- Individual Motor Controls -->
+                    <div class="dual-motor-grid">
+                        <div class="motor-control-group">
+                            <div class="motor-control-header axis-color-x">Motor 0 (X-Axis)</div>
+                            <div class="input-group">
+                                <label class="input-label">Target Position</label>
+                                <input type="number" class="input" id="motor0-position-input" placeholder="Enter position" value="0">
+                            </div>
+                        </div>
+                        <div class="motor-control-group">
+                            <div class="motor-control-header axis-color-y">Motor 1 (Y-Axis)</div>
+                            <div class="input-group">
+                                <label class="input-label">Target Position</label>
+                                <input type="number" class="input" id="motor1-position-input" placeholder="Enter position" value="0">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Movement Control Buttons -->
+                    <div class="input-group" style="margin-top: 15px;">
+                        <label class="input-label">
+                            <input type="checkbox" id="wait-completion-checkbox" checked style="margin-right: 5px;">
+                            Wait for completion
+                        </label>
+                    </div>
+
+                    <div class="quick-actions">
+                        <button class="button primary" id="move-both-btn">Move Both Motors</button>
+                        <button class="button" id="move-motor0-btn">Move Motor 0</button>
+                        <button class="button" id="move-motor1-btn">Move Motor 1</button>
+                    </div>
+
+                    <div class="quick-actions">
+                        <button class="button" id="set-zero-all-btn">Zero All Motors</button>
+                        <button class="button" id="set-zero-motor0-btn">Zero Motor 0</button>
+                        <button class="button" id="set-zero-motor1-btn">Zero Motor 1</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-header">Motor Control</div>
+                <div class="section-content">
+                    <div class="data-grid">
+                        <div class="input-group">
+                            <label class="input-label">Motor ID</label>
+                            <select class="input" id="motor-id-select">
+                                <option value="0">Motor 0 (X-Axis)</option>
+                                <option value="1">Motor 1 (Y-Axis)</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">Steps to Move</label>
+                            <input type="number" class="input" id="steps-input" placeholder="Enter steps" value="100">
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">Speed (μs)</label>
+                        <input type="number" class="input" id="speed-input" placeholder="Step interval" value="1000">
+                    </div>
+                    <button class="button" id="move-forward-btn">Move Forward</button>
+                    <button class="button" id="move-backward-btn">Move Backward</button>
+                    <button class="button" id="set-speed-btn">Set Speed</button>
+                    <button class="button danger" id="emergency-stop-btn">Emergency Stop</button>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-header">System Log</div>
+                <div class="section-content">
+                    <div class="log-container" id="log-container"></div>
+                    <button class="button" id="clear-log-btn">Clear Log</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class DualAxisStepperMotorGUI {
+            constructor() {
+                this.port = null;
+                this.reader = null;
+                this.isConnected = false;
+                this.joystickXData = [];
+                this.joystickYData = [];
+                this.motor0IntervalData = [];
+                this.motor1IntervalData = [];
+                this.maxDataPoints = 100;
+
+                // Chart update throttling
+                this.lastChartUpdate = 0;
+                this.chartUpdateInterval = 100;
+                this.pendingChartUpdate = false;
+
+                // Latest data for display
+                this.latestXReading = 0;
+                this.latestYReading = 0;
+                this.latestMotor0Dir = 0;
+                this.latestMotor1Dir = 0;
+                this.latestMotor0Interval = 0;
+                this.latestMotor1Interval = 0;
+
+                // System state
+                this.currentState = 'unknown';
+                this.motorCount = 2;
+                this.motorPositions = [0, 0, 0]; // positions for motors 0, 1, 2
+
+                this.initializeCharts();
+                this.initializeEventListeners();
+                this.updatePositionDisplay();
+                this.addLogEntry('Dual Axis Motor GUI initialized', 'info');
+            }
+
+            initializeCharts() {
+                const chartOptions = {
+                    chart: {
+                        type: 'line',
+                        height: '100%',
+                        background: 'transparent',
+                        toolbar: { show: false },
+                        animations: {
+                            enabled: true,
+                            easing: 'linear',
+                            dynamicAnimation: {
+                                speed: 100
+                            }
+                        }
+                    },
+                    theme: {
+                        mode: 'dark'
+                    },
+                    grid: {
+                        borderColor: '#404040'
+                    },
+                    xaxis: {
+                        type: 'numeric',
+                        range: this.maxDataPoints,
+                        labels: { style: { colors: '#999999' } }
+                    },
+                    yaxis: {
+                        labels: { style: { colors: '#999999' } }
+                    },
+                    stroke: {
+                        curve: 'smooth',
+                        width: 2
+                    },
+                    markers: {
+                        size: 0
+                    },
+                    tooltip: {
+                        theme: 'dark'
+                    },
+                    legend: {
+                        labels: {
+                            colors: '#999999'
+                        }
+                    }
+                };
+
+                // Joystick Chart (dual axis)
+                this.joystickChart = new ApexCharts(document.querySelector("#joystick-chart"), {
+                    ...chartOptions,
+                    series: [
+                        {
+                            name: 'X-Axis (Motor 0)',
+                            data: [],
+                            color: '#00d4ff'
+                        },
+                        {
+                            name: 'Y-Axis (Motor 1)',
+                            data: [],
+                            color: '#ff6b6b'
+                        }
+                    ],
+                    yaxis: {
+                        ...chartOptions.yaxis,
+                        min: 0,
+                        max: 4095,
+                        title: { text: 'ADC Value', style: { color: '#999999' } }
+                    }
+                });
+
+                // Interval Chart (dual motor)
+                this.intervalChart = new ApexCharts(document.querySelector("#interval-chart"), {
+                    ...chartOptions,
+                    series: [
+                        {
+                            name: 'Motor 0 Interval',
+                            data: [],
+                            color: '#00d4ff'
+                        },
+                        {
+                            name: 'Motor 1 Interval',
+                            data: [],
+                            color: '#ff6b6b'
+                        }
+                    ],
+                    yaxis: {
+                        ...chartOptions.yaxis,
+                        title: { text: 'Microseconds', style: { color: '#999999' } }
+                    }
+                });
+
+                this.joystickChart.render();
+                this.intervalChart.render();
+            }
+
+            initializeEventListeners() {
+                document.getElementById('connect-btn').addEventListener('click', () => this.connectSerial());
+                document.getElementById('disconnect-btn').addEventListener('click', () => this.disconnectSerial());
+                document.getElementById('clear-log-btn').addEventListener('click', () => this.clearLog());
+
+                // Motor control buttons
+                document.getElementById('move-forward-btn').addEventListener('click', () => this.moveForward());
+                document.getElementById('move-backward-btn').addEventListener('click', () => this.moveBackward());
+                document.getElementById('emergency-stop-btn').addEventListener('click', () => this.emergencyStop());
+                document.getElementById('set-speed-btn').addEventListener('click', () => this.setSpeed());
+
+                // State control buttons
+                document.getElementById('joystick-mode-btn').addEventListener('click', () => this.setJoystickMode());
+                document.getElementById('command-mode-btn').addEventListener('click', () => this.setCommandMode());
+                document.getElementById('set-motors-btn').addEventListener('click', () => this.setMotorCount());
+
+                // Dual motor position control buttons
+                document.getElementById('move-both-btn').addEventListener('click', () => this.moveBothMotors());
+                document.getElementById('move-motor0-btn').addEventListener('click', () => this.moveMotor(0));
+                document.getElementById('move-motor1-btn').addEventListener('click', () => this.moveMotor(1));
+                document.getElementById('set-zero-all-btn').addEventListener('click', () => this.setZeroAllMotors());
+                document.getElementById('set-zero-motor0-btn').addEventListener('click', () => this.setZeroMotor(0));
+                document.getElementById('set-zero-motor1-btn').addEventListener('click', () => this.setZeroMotor(1));
+            }
+
+            async connectSerial() {
+                try {
+                    if (!navigator.serial) {
+                        this.addLogEntry('Web Serial API not supported', 'error');
+                        return;
+                    }
+
+                    this.port = await navigator.serial.requestPort();
+                    await this.port.open({ baudRate: 115200 });
+
+                    this.writer = this.port.writable.getWriter();
+
+                    this.isConnected = true;
+                    this.updateConnectionStatus();
+                    this.addLogEntry('Serial connection established', 'success');
+
+                    this.startReading();
+                } catch (error) {
+                    this.addLogEntry(`Connection failed: ${error.message}`, 'error');
+                }
+            }
+
+            async disconnectSerial() {
+                if (this.reader) {
+                    await this.reader.cancel();
+                }
+                if (this.writer) {
+                    await this.writer.close();
+                }
+                if (this.port) {
+                    await this.port.close();
+                }
+
+                this.port = null;
+                this.reader = null;
+                this.writer = null;
+                this.isConnected = false;
+                this.updateConnectionStatus();
+                this.addLogEntry('Serial connection closed', 'info');
+            }
+
+            updateConnectionStatus() {
+                const statusIndicator = document.getElementById('connection-status');
+                const statusText = document.getElementById('connection-text');
+                const connectBtn = document.getElementById('connect-btn');
+                const disconnectBtn = document.getElementById('disconnect-btn');
+
+                if (this.isConnected) {
+                    statusIndicator.className = 'status-indicator status-connected';
+                    statusText.textContent = 'Connected';
+                    connectBtn.disabled = true;
+                    disconnectBtn.disabled = false;
+                } else {
+                    statusIndicator.className = 'status-indicator status-disconnected';
+                    statusText.textContent = 'Disconnected';
+                    connectBtn.disabled = false;
+                    disconnectBtn.disabled = true;
+                }
+            }
+
+            updateStateDisplay() {
+                const stateIndicator = document.getElementById('state-indicator');
+                const stateText = document.getElementById('state-text');
+                const joystickBtn = document.getElementById('joystick-mode-btn');
+                const commandBtn = document.getElementById('command-mode-btn');
+                const motorControlButtons = document.querySelectorAll('#move-forward-btn, #move-backward-btn, #set-speed-btn');
+                const positionControlButtons = document.querySelectorAll('#move-both-btn, #move-motor0-btn, #move-motor1-btn, #set-zero-all-btn, #set-zero-motor0-btn, #set-zero-motor1-btn');
+
+                switch(this.currentState) {
+                    case 'joystick':
+                        stateIndicator.className = 'status-indicator status-connected';
+                        stateText.textContent = `Joystick Mode (${this.motorCount} motor${this.motorCount > 1 ? 's' : ''})`;
+                        joystickBtn.disabled = true;
+                        commandBtn.disabled = false;
+                        motorControlButtons.forEach(btn => btn.disabled = true);
+                        positionControlButtons.forEach(btn => btn.disabled = true);
+                        break;
+                    case 'command':
+                        stateIndicator.className = 'status-indicator status-connected';
+                        stateIndicator.style.backgroundColor = '#ff9800';
+                        stateIndicator.style.boxShadow = '0 0 4px #ff9800';
+                        stateText.textContent = `Command Mode (${this.motorCount} motor${this.motorCount > 1 ? 's' : ''})`;
+                        joystickBtn.disabled = false;
+                        commandBtn.disabled = true;
+                        motorControlButtons.forEach(btn => btn.disabled = false);
+                        positionControlButtons.forEach(btn => btn.disabled = false);
+                        break;
+                    default:
+                        stateIndicator.className = 'status-indicator status-disconnected';
+                        stateText.textContent = 'Unknown State';
+                        joystickBtn.disabled = false;
+                        commandBtn.disabled = false;
+                        motorControlButtons.forEach(btn => btn.disabled = true);
+                        positionControlButtons.forEach(btn => btn.disabled = true);
+                }
+            }
+
+            updatePositionDisplay() {
+                const container = document.getElementById('position-display-grid');
+                container.innerHTML = '';
+
+                for (let i = 0; i < this.motorCount && i < 3; i++) {
+                    const dataItem = document.createElement('div');
+                    dataItem.className = 'data-item';
+                    const axisLabel = i === 0 ? ' (X)' : i === 1 ? ' (Y)' : '';
+                    const colorClass = i === 0 ? 'axis-color-x' : i === 1 ? 'axis-color-y' : '';
+
+                    dataItem.innerHTML = `
+                        <div class="data-label ${colorClass}">Motor ${i}${axisLabel} Position</div>
+                        <div class="data-value" id="motor${i}-position">${this.motorPositions[i]}</div>
+                    `;
+                    container.appendChild(dataItem);
+                }
+            }
+
+            async startReading() {
+                const textDecoder = new TextDecoderStream();
+                const readableStreamClosed = this.port.readable.pipeTo(textDecoder.writable);
+                this.reader = textDecoder.readable.getReader();
+
+                let buffer = '';
+
+                try {
+                    while (this.isConnected) {
+                        const { value, done } = await this.reader.read();
+                        if (done) break;
+
+                        buffer += value;
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop();
+
+                        for (const line of lines) {
+                            this.processDataLine(line.trim());
+                        }
+                    }
+                } catch (error) {
+                    this.addLogEntry(`Reading error: ${error.message}`, 'error');
+                } finally {
+                    this.reader.releaseLock();
+                }
+            }
+
+            processDataLine(line) {
+                if (!line) return;
+
+                if (line.startsWith('DATA,')) {
+                    try {
+                        const parts = line.split(',');
+                        // New format: DATA,x_reading,y_reading,motor0_dir,motor1_dir,motor0_interval,motor1_interval
+                        if (parts.length === 7) {
+                            const xReading = parseInt(parts[1]);
+                            const yReading = parseInt(parts[2]);
+                            const motor0Dir = parseInt(parts[3]);
+                            const motor1Dir = parseInt(parts[4]);
+                            const motor0Interval = parseFloat(parts[5]);
+                            const motor1Interval = parseFloat(parts[6]);
+
+                            // Only update display every few readings to reduce DOM updates
+                            this.dataUpdateCounter = (this.dataUpdateCounter || 0) + 1;
+                            if (this.dataUpdateCounter % 5 === 0) { // Update every 5th reading
+                                this.updateDataDisplay(xReading, yReading, motor0Dir, motor1Dir, motor0Interval, motor1Interval);
+                            }
+
+                            this.latestXReading = xReading;
+                            this.latestYReading = yReading;
+                            this.latestMotor0Dir = motor0Dir;
+                            this.latestMotor1Dir = motor1Dir;
+                            this.latestMotor0Interval = motor0Interval;
+                            this.latestMotor1Interval = motor1Interval;
+
+                            this.throttledChartUpdate();
+                        }
+                        // Fallback for old single-axis format: DATA,reading,dir,interval
+                        else if (parts.length === 4) {
+                            const reading = parseInt(parts[1]);
+                            const direction = parseInt(parts[2]);
+                            const interval = parseFloat(parts[3]);
+
+                            // Treat as single axis data (legacy support)
+                            this.dataUpdateCounter = (this.dataUpdateCounter || 0) + 1;
+                            if (this.dataUpdateCounter % 5 === 0) {
+                                this.updateDataDisplay(reading, 0, direction, 0, interval, 0);
+                            }
+
+                            this.latestXReading = reading;
+                            this.latestYReading = 0;
+                            this.latestMotor0Dir = direction;
+                            this.latestMotor1Dir = 0;
+                            this.latestMotor0Interval = interval;
+                            this.latestMotor1Interval = 0;
+
+                            this.throttledChartUpdate();
+                        }
+
+                    } catch (error) {
+                        this.addLogEntry(`Parse error: ${error.message}`, 'error');
+                    }
+                } else if (line.startsWith('STATE,')) {
+                    try {
+                        const parts = line.split(',');
+                        if (parts.length >= 2) {
+                            this.currentState = parts[1].toLowerCase();
+                            if (parts.length >= 3) {
+                                this.motorCount = parseInt(parts[2]);
+                                this.updatePositionDisplay();
+                            }
+                            this.updateStateDisplay();
+                        }
+                    } catch (error) {
+                        this.addLogEntry(`State parse error: ${error.message}`, 'error');
+                    }
+                } else if (line.startsWith('POSITION,')) {
+                    try {
+                        const parts = line.split(',');
+                        // Format: POSITION,motor0_pos,motor1_pos,...
+                        for (let i = 1; i < parts.length && i <= this.motorCount; i++) {
+                            this.motorPositions[i - 1] = parseInt(parts[i]);
+                            const posElement = document.getElementById(`motor${i-1}-position`);
+                            if (posElement) {
+                                posElement.textContent = this.motorPositions[i - 1];
+                            }
+                        }
+                    } catch (error) {
+                        this.addLogEntry(`Position parse error: ${error.message}`, 'error');
+                    }
+                } else if (line.startsWith('ACK,') || line.startsWith('ERROR,')) {
+                    this.addLogEntry(line, line.startsWith('ERROR,') ? 'error' : 'success');
+                }
+            }
+
+            throttledChartUpdate() {
+                const now = Date.now();
+
+                if (now - this.lastChartUpdate >= this.chartUpdateInterval && !this.pendingChartUpdate) {
+                    this.updateCharts(this.latestXReading, this.latestYReading, this.latestMotor0Interval, this.latestMotor1Interval);
+                    this.lastChartUpdate = now;
+                } else if (!this.pendingChartUpdate) {
+                    this.pendingChartUpdate = true;
+                    const remainingTime = this.chartUpdateInterval - (now - this.lastChartUpdate);
+
+                    setTimeout(() => {
+                        this.updateCharts(this.latestXReading, this.latestYReading, this.latestMotor0Interval, this.latestMotor1Interval);
+                        this.lastChartUpdate = Date.now();
+                        this.pendingChartUpdate = false;
+                    }, remainingTime);
+                }
+            }
+
+            updateCharts(xReading, yReading, motor0Interval, motor1Interval) {
+                const timestamp = this.joystickXData.length;
+
+                this.joystickXData.push([timestamp, xReading]);
+                this.joystickYData.push([timestamp, yReading]);
+                this.motor0IntervalData.push([timestamp, motor0Interval]);
+                this.motor1IntervalData.push([timestamp, motor1Interval]);
+
+                if (this.joystickXData.length > this.maxDataPoints) {
+                    this.joystickXData.shift();
+                    this.joystickYData.shift();
+                    this.motor0IntervalData.shift();
+                    this.motor1IntervalData.shift();
+
+                    // Reindex the data points
+                    this.joystickXData = this.joystickXData.map((point, index) => [index, point[1]]);
+                    this.joystickYData = this.joystickYData.map((point, index) => [index, point[1]]);
+                    this.motor0IntervalData = this.motor0IntervalData.map((point, index) => [index, point[1]]);
+                    this.motor1IntervalData = this.motor1IntervalData.map((point, index) => [index, point[1]]);
+                }
+
+                this.joystickChart.updateSeries([
+                    { data: this.joystickXData },
+                    { data: this.joystickYData }
+                ]);
+                this.intervalChart.updateSeries([
+                    { data: this.motor0IntervalData },
+                    { data: this.motor1IntervalData }
+                ]);
+            }
+
+            updateDataDisplay(xReading, yReading, motor0Dir, motor1Dir, motor0Interval, motor1Interval) {
+                document.getElementById('joystick-x-value').textContent = xReading;
+                document.getElementById('joystick-y-value').textContent = yReading;
+                document.getElementById('motor0-dir-value').textContent = motor0Dir;
+                document.getElementById('motor1-dir-value').textContent = motor1Dir;
+                document.getElementById('motor0-interval-value').textContent = motor0Interval.toFixed(1);
+                document.getElementById('motor1-interval-value').textContent = motor1Interval.toFixed(1);
+
+                const motor0Speed = motor0Interval > 0 ? Math.round(1000000 / motor0Interval) : 0;
+                const motor1Speed = motor1Interval > 0 ? Math.round(1000000 / motor1Interval) : 0;
+                document.getElementById('motor0-speed-value').textContent = motor0Speed;
+                document.getElementById('motor1-speed-value').textContent = motor1Speed;
+            }
+
+            addLogEntry(message, type = '') {
+                const logContainer = document.getElementById('log-container');
+                const entry = document.createElement('div');
+                entry.className = `log-entry ${type}`;
+
+                const timestamp = new Date().toLocaleTimeString();
+                entry.textContent = `[${timestamp}] ${message}`;
+
+                logContainer.appendChild(entry);
+                logContainer.scrollTop = logContainer.scrollHeight;
+
+                while (logContainer.children.length > 100) {
+                    logContainer.removeChild(logContainer.firstChild);
+                }
+            }
+
+            clearLog() {
+                document.getElementById('log-container').innerHTML = '';
+                this.addLogEntry('Log cleared', 'info');
+            }
+
+            async sendCommand(command) {
+                if (!this.isConnected || !this.writer) {
+                    this.addLogEntry('Not connected to serial port', 'error');
+                    return false;
+                }
+
+                try {
+                    const encoder = new TextEncoder();
+                    const data = encoder.encode(command + '\n');
+                    await this.writer.write(data);
+                    this.addLogEntry(`Sent: ${command}`, 'info');
+                    return true;
+                } catch (error) {
+                    this.addLogEntry(`Send error: ${error.message}`, 'error');
+                    return false;
+                }
+            }
+
+            // Individual motor commands
+            async moveForward() {
+                const motorId = parseInt(document.getElementById('motor-id-select').value);
+                const steps = parseInt(document.getElementById('steps-input').value) || 100;
+                await this.sendCommand(`MOVE,${motorId},${steps}`);
+            }
+
+            async moveBackward() {
+                const motorId = parseInt(document.getElementById('motor-id-select').value);
+                const steps = parseInt(document.getElementById('steps-input').value) || 100;
+                await this.sendCommand(`MOVE,${motorId},${-steps}`);
+            }
+
+            async setSpeed() {
+                const speed = parseInt(document.getElementById('speed-input').value) || 1000;
+                await this.sendCommand(`SPEED,${speed}`);
+            }
+
+            async emergencyStop() {
+                await this.sendCommand('STOP');
+            }
+
+            // State control functions
+            async setJoystickMode() {
+                await this.sendCommand('MODE,JOYSTICK');
+            }
+
+            async setCommandMode() {
+                await this.sendCommand('MODE,COMMAND');
+            }
+
+            async setMotorCount() {
+                const count = parseInt(document.getElementById('motor-count-input').value) || 2;
+                if (count >= 1 && count <= 3) {
+                    await this.sendCommand(`MOTORS,${count}`);
+                } else {
+                    this.addLogEntry('Motor count must be 1-3', 'error');
+                }
+            }
+
+            // Dual motor position control functions
+            async moveBothMotors() {
+                const pos0 = parseInt(document.getElementById('motor0-position-input').value) || 0;
+                const pos1 = parseInt(document.getElementById('motor1-position-input').value) || 0;
+                const waitForCompletion = document.getElementById('wait-completion-checkbox').checked ? 1 : 0;
+
+                await this.sendCommand(`MOVETO,0,${pos0},1,${pos1},${waitForCompletion}`);
+            }
+
+            async moveMotor(motorId) {
+                const posInput = document.getElementById(`motor${motorId}-position-input`);
+                const position = parseInt(posInput.value) || 0;
+                const waitForCompletion = document.getElementById('wait-completion-checkbox').checked ? 1 : 0;
+
+                await this.sendCommand(`MOVETO,${motorId},${position},${waitForCompletion}`);
+            }
+
+            async setZeroAllMotors() {
+                await this.sendCommand('SETZERO');
+            }
+
+            async setZeroMotor(motorId) {
+                await this.sendCommand(`SETZERO,${motorId}`);
+            }
+        }
+
+        // Initialize the GUI when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            new DualAxisStepperMotorGUI();
+        });
+    </script>
+</body>
+</html>

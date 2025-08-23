@@ -11,6 +11,7 @@
 
 #define LED_PIN        25
 #define JOYSTICK_X_PIN 26
+#define JOYSTICK_Y_PIN 27
 
 // System state enumeration
 typedef enum {
@@ -62,9 +63,20 @@ char command_buffer[COMMAND_BUFFER_SIZE];
 int command_buffer_pos = 0;
 bool command_ready = false;
 
+// Joystick calibration variables
+#define NUM_CAL_SAMPLES 100
+#define CAL_SAMPLE_DELAY_MS 5
+
+// margem morta (deadzone) em contagens ADC, ajuste se necessário
+const uint16_t DEADZONE = 200; // ~30/4095 ~ small tolerance. Ajuste conforme ruído do seu joystick
+const uint16_t MAX_INTERVAL_JOYSTICK = 1750; // us
+
+uint16_t joystick_x_center = 2048;
+uint16_t joystick_y_center = 2048;
+
 // System state variables
 system_state_t current_state = STATE_JOYSTICK;
-uint8_t active_motor_count = 1;
+uint8_t active_motor_count = 2; // define o numero de motores ligados
 
 // Declaração de funções
 int64_t alarm_irq_handler(alarm_id_t id, void *user_data);
@@ -88,7 +100,8 @@ void stop_all_motors(void);
 // novos protótipos
 void start_motor_continuous(stepper_motor_t *motor);
 void stop_motor(stepper_motor_t *motor);
-uint16_t read_joystick_average(int samples, int delay_ms);
+uint16_t read_joystick_average(int adc_input, int samples, int delay_ms);
+void control_motor_from_joystick(stepper_motor_t *motor, uint16_t reading, uint16_t center);
 
 // Função principal
 int main (void) {
@@ -96,11 +109,13 @@ int main (void) {
 
     adc_init();
     adc_gpio_init(JOYSTICK_X_PIN);
-    adc_select_input(0);
+    adc_gpio_init(JOYSTICK_Y_PIN);
 
     gpio_init(LED_PIN); gpio_set_dir(LED_PIN, GPIO_OUT); gpio_put(LED_PIN, 0);
 
+    // Cria instância do timer para o LED
     repeating_timer_t led_timer;
+    add_repeating_timer_ms(500, led_callback, NULL, &led_timer);
 
     // Inicializa os motores
     for (uint i = 0; i < 2; i++) {
@@ -110,38 +125,15 @@ int main (void) {
     const int MOTOR_STEPS = 48;
     int32_t steps_per_rev = MOTOR_STEPS * 16; // 768 passos/rev
 
-    // steppers[0].initial_step_interval = 4000.0f; // 4 ms entre passos no início
-    // steppers[0].max_speed             = 1000;    // não acelera além de 1 ms por passo
+    sleep_ms(5000);
 
-    // steppers[1].initial_step_interval = 7000.0f; // mais lento no início
-    // steppers[1].max_speed             = 500;    // limite mais lento para este motor
-
-    // Cria instância do timer para o LED
-    add_repeating_timer_ms(500, led_callback, NULL, &led_timer);
-
-    sleep_ms(3000);
-
-    // =========================
     // Calibração inicial do joystick: lê 100 amostras e define o centro
-    // =========================
-    const int NUM_CAL_SAMPLES = 100;
-    const int CAL_SAMPLE_DELAY_MS = 5;
-    uint16_t joystick_center = read_joystick_average(NUM_CAL_SAMPLES, CAL_SAMPLE_DELAY_MS);
-    printf("Joystick center (avg %d samples) = %u\n", NUM_CAL_SAMPLES, joystick_center);
-    sleep_ms(2000);
+    joystick_x_center = read_joystick_average(0, NUM_CAL_SAMPLES, CAL_SAMPLE_DELAY_MS);
+    printf("Joystick X center (avg %d samples) = %u\n", NUM_CAL_SAMPLES, joystick_x_center);
+    joystick_y_center = read_joystick_average(1, NUM_CAL_SAMPLES, CAL_SAMPLE_DELAY_MS);
+    printf("Joystick Y center (avg %d samples) = %u\n", NUM_CAL_SAMPLES, joystick_y_center);
 
-    // margem morta (deadzone) em contagens ADC, ajuste se necessário
-    const uint16_t DEADZONE = 200; // ~30/4095 ~ small tolerance. Ajuste conforme ruído do seu joystick
-
-    const uint16_t MAX_INTERVAL_JOYSTICK = 1750; // us
-
-    // referência para normalização
-    const uint16_t ADC_MAX = (1 << 12) - 1; // 4095
-
-    // Configurações do motor 0 (já definidas em init, mas deixo claro aqui caso queira alterar)
-    stepper_motor_t *m0 = &steppers[0];
-
-    printf("Iniciando demo para 3 motores...\n");
+    printf("Iniciando demo para 2 motores...\n");
 
     // Send initial state and position after initialization
     send_state_update();
@@ -159,89 +151,54 @@ int main (void) {
 
         // Only process joystick input in JOYSTICK mode
         if (current_state == STATE_JOYSTICK) {
-            uint16_t reading = adc_read();
-            int delta = (int)reading - (int)joystick_center;
+            // Realiza a leitura dos eixos x e y
+            adc_select_input(0);
+            uint16_t x_reading = adc_read();
 
-            // Control the first motor (motor 0) with joystick
-            stepper_motor_t *m0 = &steppers[0];
+            adc_select_input(1);
+            uint16_t y_reading = adc_read();
 
-            if (abs(delta) <= (int)DEADZONE) {
-                // within deadzone -> ensure motor is stopped
-                if (m0->alarm_active) {
-                    stop_motor(m0);
-                }
-            } else {
-                // outside deadzone -> direction and speed proportional to distance from center
-                if (delta > 0) {
-                    m0->dir = 1;
-                    gpio_put(m0->dir_pin, 0);
-                } else {
-                    m0->dir = -1;
-                    gpio_put(m0->dir_pin, 1);
-                }
+            // Controla o motor 0
+            control_motor_from_joystick(&steppers[0], x_reading, joystick_x_center);
 
-                // Calculate normalization using max distance from center
-                uint16_t max_pos_dev = ADC_MAX - joystick_center;
-                uint16_t max_neg_dev = joystick_center;
-                float max_dev = (delta > 0) ? (float)max_pos_dev : (float)max_neg_dev;
-                if (max_dev <= 0.0f) max_dev = (float)ADC_MAX / 2.0f;
-
-                float norm = (float)abs(delta) / max_dev;
-                if (norm > 1.0f) norm = 1.0f;
-
-                // Map norm (0..1) to step interval
-                float min_int = (float)m0->max_speed;
-                float max_int = m0->initial_step_interval;
-                float desired_interval = max_int - norm * (max_int - min_int);
-
-                if (desired_interval < MAX_INTERVAL_JOYSTICK) desired_interval = MAX_INTERVAL_JOYSTICK;
-
-                m0->actual_step_interval = desired_interval;
-                m0->half_period_interval = desired_interval * 0.5f;
-
-                // Start motor in continuous mode if not already running
-                if (!m0->alarm_active) {
-                    start_motor_continuous(m0);
-                }
-            }
-
-            // For second motor in joystick mode, you have several options:
-            // Option 1: Mirror motor 0 (same direction, same speed)
+            // Controla o motor 1
             if (active_motor_count >= 2) {
-                stepper_motor_t *m1 = &steppers[1];
-
-                if (abs(delta) <= (int)DEADZONE) {
-                    // Stop motor 1 when joystick is in deadzone
-                    if (m1->alarm_active) {
-                        stop_motor(m1);
-                    }
-                } else {
-                    // Mirror motor 0's behavior
-                    m1->dir = m0->dir;
-                    gpio_put(m1->dir_pin, gpio_get(m0->dir_pin));
-                    m1->actual_step_interval = m0->actual_step_interval;
-                    m1->half_period_interval = m0->half_period_interval;
-
-                    if (!m1->alarm_active) {
-                        start_motor_continuous(m1);
-                    }
-                }
+                control_motor_from_joystick(&steppers[1], y_reading, joystick_y_center);
             }
 
             // Only send data if there's significant change
-            static uint16_t last_reading = 0;
-            static float last_interval = 0;
+            static uint16_t last_x_reading = 0;
+            static uint16_t last_y_reading = 0;
+            static float last_x_interval = 0;
+            static float last_y_interval = 0;
 
-            if (abs((int)reading - (int)last_reading) > 10 ||
-                fabs(m0->actual_step_interval - last_interval) > 50.0f) {
-                printf("DATA,%u,%d,%.1f\n", reading, m0->dir, m0->actual_step_interval);
-                last_reading = reading;
-                last_interval = m0->actual_step_interval;
+            if (abs((int)x_reading - (int)last_x_reading) > 10 ||
+                abs((int)y_reading - (int)last_y_reading) > 10 ||
+                fabs(steppers[0].actual_step_interval - last_x_interval) > 50.0f ||
+                (active_motor_count >= 2 && fabs(steppers[1].actual_step_interval - last_y_interval) > 50.0f)) {
+
+                if (active_motor_count >= 2) {
+                    printf("DATA,%u,%u,%d,%d,%.1f,%.1f\n",
+                           x_reading, y_reading,
+                           steppers[0].dir, steppers[1].dir,
+                           steppers[0].actual_step_interval, steppers[1].actual_step_interval);
+                } else {
+                    printf("DATA,%u,%u,%d,0,%.1f,0.0\n",
+                           x_reading, y_reading,
+                           steppers[0].dir,
+                           steppers[0].actual_step_interval);
+                }
+
+                last_x_reading = x_reading;
+                last_y_reading = y_reading;
+                last_x_interval = steppers[0].actual_step_interval;
+                if (active_motor_count >= 2) {
+                    last_y_interval = steppers[1].actual_step_interval;
+                }
             }
         } else {
             // In command mode, send minimal data or status
-            // You can modify this based on what data you want to send in command mode
-            printf("DATA,0,0,0.0\n"); // Or comment this out if no data needed
+            printf("DATA,0,0,0,0,0.0,0.0\n"); // Or comment this out if no data needed
         }
 
         // Send periodic position updates (every 100 loops = ~1 second)
@@ -251,7 +208,7 @@ int main (void) {
             position_update_counter = 0;
         }
 
-        sleep_ms(20);
+        sleep_ms(25);
     }
 
     return 0;
@@ -435,14 +392,63 @@ void stop_motor(stepper_motor_t *motor) {
 }
 
 // Lê N amostras do ADC e retorna a média
-uint16_t read_joystick_average(int samples, int delay_ms) {
+uint16_t read_joystick_average(int adc_input, int samples, int delay_ms) {
     uint32_t sum = 0;
     for (int i = 0; i < samples; i++) {
+        adc_select_input(adc_input);
         uint16_t r = adc_read();
         sum += r;
         sleep_ms(delay_ms);
     }
+
     return (uint16_t)(sum / (uint32_t)samples);
+}
+
+// Realiza o controle do motor especificado com o joystick
+void control_motor_from_joystick(stepper_motor_t *motor, uint16_t reading, uint16_t center) {
+    // Obtém a distância do joystick para o centro
+    int delta = (int)reading - (int)center;
+    const uint16_t ADC_MAX = (1 << 12) - 1; // 4095
+
+    if (abs(delta) <= (int)DEADZONE) {
+        if (motor->alarm_active) {
+            stop_motor(motor);
+        }
+    } else {
+        // Define a direção de rotação do motor
+        if (delta > 0) {
+            motor->dir = 1;
+            gpio_put(motor->dir_pin, 0);
+        } else {
+            motor->dir = -1;
+            gpio_put(motor->dir_pin, 1);
+        }
+
+        // Calcula a do joystick do centro e faz a normalização de (0 -> 4095) para (0 -> 1)
+        uint16_t max_pos_dev = ADC_MAX - center;
+        uint16_t max_neg_dev = center;
+        float max_dev = (delta > 0) ? (float)max_pos_dev : (float)max_neg_dev;
+        if (max_dev <= 0.0f) max_dev = (float)ADC_MAX / 2.0f;
+
+        float norm = (float)abs(delta) / max_dev;
+        if (norm > 1.0f) norm = 1.0f;
+
+        // Mapeia a normalização de (0 -> 1) para o intervalo do pulso
+        float min_int = (float)motor->max_speed;
+        float max_int = motor->initial_step_interval;
+        float desired_interval = max_int - norm * (max_int - min_int);
+
+        if (desired_interval < MAX_INTERVAL_JOYSTICK) desired_interval = MAX_INTERVAL_JOYSTICK;
+
+        motor->actual_step_interval = desired_interval;
+        motor->half_period_interval = desired_interval * 0.5f;
+
+        // Inicia a movimentação do motor caso não esteja ativado
+        if (!motor->alarm_active) {
+            start_motor_continuous(motor);
+        }
+    }
+
 }
 
 // Add this function to process incoming serial data
@@ -465,25 +471,25 @@ void process_serial_input(void) {
 
 // Update your existing handle_command function to properly handle SETZERO with parameters:
 void handle_command(const char* command) {
-    printf("Received command: %s\n", command);
+    printf("COMANDO RECEBIDO: %s\n", command);
 
     if (strncmp(command, "MOVE,", 5) == 0) {
         if (current_state != STATE_COMMAND) {
-            printf("ERROR,Cannot move in joystick mode\n");
+            printf("ERROR,Nao pode mover no modo joystick\n");
             return;
         }
         parse_move_command(command + 5);
     }
     else if (strncmp(command, "SPEED,", 6) == 0) {
         if (current_state != STATE_COMMAND) {
-            printf("ERROR,Cannot set speed in joystick mode\n");
+            printf("ERROR,Nao pode definir velocidade no modo joystick\n");
             return;
         }
         parse_speed_command(command + 6);
     }
     else if (strcmp(command, "STOP") == 0) {
         stop_all_motors();
-        printf("ACK,Emergency stop executed\n");
+        printf("ACK,Parada de emergencia executada\n");
     }
     else if (strncmp(command, "MODE,", 5) == 0) {
         parse_mode_command(command + 5);
@@ -493,14 +499,14 @@ void handle_command(const char* command) {
     }
     else if (strncmp(command, "MOVETO,", 7) == 0) {
         if (current_state != STATE_COMMAND) {
-            printf("ERROR,Cannot move to position in joystick mode\n");
+            printf("ERROR,Nao pode posicionar no modo joystick\n");
             return;
         }
         parse_moveto_command(command + 7);
     }
     else if (strncmp(command, "SETZERO", 7) == 0) {
         if (current_state != STATE_COMMAND) {
-            printf("ERROR,Cannot set zero position in joystick mode\n");
+            printf("ERROR,Nao pode definir origem no modo joystick\n");
             return;
         }
         // Check if there are parameters after SETZERO
@@ -525,7 +531,7 @@ void handle_command(const char* command) {
         send_state_update();
     }
     else {
-        printf("ERROR,Unknown command: %s\n", command);
+        printf("ERROR,Comando desconhecido: %s\n", command);
     }
 }
 
@@ -550,7 +556,7 @@ void parse_move_command(const char* params) {
     }
 
     if (motor_id < 0 || motor_id >= (int)active_motor_count || motor_id >= 3) {
-        printf("ERROR,Invalid motor ID: %d\n", motor_id);
+        printf("ERROR,ID de motor invalido: %d\n", motor_id);
         free(param_copy);
         return;
     }
@@ -563,7 +569,7 @@ void parse_move_command(const char* params) {
         sleep_ms(10);
     }
 
-    printf("ACK,Motor %d moving %d steps\n", motor_id, steps);
+    printf("ACK,Motor %d movendo %d passos\n", motor_id, steps);
 
     if (steps != 0) {
         move_n_steps(motor, steps);
@@ -572,7 +578,7 @@ void parse_move_command(const char* params) {
         while (!motor->movement_done && motor->alarm_active) {
             sleep_ms(1);
         }
-        printf("ACK,Motor %d movement completed at position %d\n",
+        printf("ACK,Motor %d realizou movimento para posicao %d\n",
                motor_id, (int)motor->step_position);
     }
 
@@ -592,10 +598,10 @@ void parse_speed_command(const char* params) {
             if (steppers[i].max_speed < 100) steppers[i].max_speed = 100; // Minimum 100μs
         }
 
-        printf("ACK,Speed updated: initial=%dμs, max=%dμs\n",
+        printf("ACK,Velocidade atualizada: inicial=%dμs, max=%dμs\n",
                speed, speed / 10);
     } else {
-        printf("ERROR,Invalid speed: %d (must be 1-10000μs)\n", speed);
+        printf("ERROR,Velocidade invalida: %d (deve estar entre 1-10000μs)\n", speed);
     }
 }
 
@@ -606,7 +612,7 @@ void parse_mode_command(const char* params) {
             // Stop all motors before switching to joystick mode
             stop_all_motors();
             current_state = STATE_JOYSTICK;
-            printf("ACK,Switched to joystick mode\n");
+            printf("ACK,Alterado para o modo JOYSTICK\n");
             send_state_update();
         }
     }
@@ -615,12 +621,12 @@ void parse_mode_command(const char* params) {
             // Stop all motors before switching to command mode
             stop_all_motors();
             current_state = STATE_COMMAND;
-            printf("ACK,Switched to command mode\n");
+            printf("ACK,Alterado para o modo de COMANDO\n");
             send_state_update();
         }
     }
     else {
-        printf("ERROR,Invalid mode: %s (use JOYSTICK or COMMAND)\n", params);
+        printf("ERROR,Modo invalido: %s (use JOYSTICK ou COMMAND)\n", params);
     }
 }
 
@@ -633,10 +639,10 @@ void parse_motors_command(const char* params) {
         stop_all_motors();
 
         active_motor_count = (uint8_t)count;
-        printf("ACK,Active motor count set to %d\n", count);
+        printf("ACK,Numero de motores definido para %d\n", count);
         send_state_update();
     } else {
-        printf("ERROR,Invalid motor count: %d (must be 1-3)\n", count);
+        printf("ERROR,Numero de motores invalido: %d (deve estar entre 1-3)\n", count);
     }
 }
 
@@ -656,7 +662,7 @@ void parse_moveto_command(const char* params) {
     }
 
     if (token_count < 3 || token_count % 2 == 0) {
-        printf("ERROR,Invalid MOVETO parameters. Format: motor_id,position[,motor_id,position],wait\n");
+        printf("ERROR,Parametros de MOVETO invalidos. Formato: motor_id,position[,motor_id,position],wait\n");
         free(param_copy);
         return;
     }
@@ -679,7 +685,7 @@ void parse_moveto_command(const char* params) {
         int32_t position = atoi(tokens[i * 2 + 1]);
 
         if (motor_id < 0 || motor_id >= (int)active_motor_count || motor_id >= 3) {
-            printf("ERROR,Invalid motor ID: %d (valid range: 0-%d)\n",
+            printf("ERROR,ID de motor invalido: %d (faixa entre: 0-%d)\n",
                    motor_id, active_motor_count - 1);
             free(param_copy);
             return;
@@ -700,7 +706,7 @@ void parse_moveto_command(const char* params) {
 
     sleep_ms(10); // Small delay to ensure all motors stop
 
-    printf("ACK,Moving %d motors to specified positions (wait=%s)\n",
+    printf("ACK,Movendo %d motores para as posicoes especificadas (esperar=%s)\n",
            valid_moves, wait_for_completion ? "true" : "false");
 
     // Start all movements simultaneously
@@ -708,7 +714,7 @@ void parse_moveto_command(const char* params) {
         stepper_motor_t *motor = &steppers[moves[i].motor_id];
         int32_t steps = moves[i].target_position - (int32_t)motor->step_position;
 
-        printf("ACK,Motor %d: %d -> %d (%d steps)\n",
+        printf("ACK,Motor %d: %d -> %d (%d passos)\n",
                moves[i].motor_id,
                (int)motor->step_position,
                moves[i].target_position,
@@ -736,9 +742,9 @@ void parse_moveto_command(const char* params) {
             }
         }
 
-        printf("ACK,All movements completed\n");
+        printf("ACK,Todos os movimentos foram completados\n");
         for (int i = 0; i < valid_moves; i++) {
-            printf("ACK,Motor %d final position: %d\n",
+            printf("ACK,Posicao final do motor %d: %d\n",
                    moves[i].motor_id,
                    (int)steppers[moves[i].motor_id].step_position);
         }
@@ -757,9 +763,9 @@ void parse_setzero_command(const char* params) {
         int motor_id = atoi(params);
         if (motor_id >= 0 && motor_id < (int)active_motor_count && motor_id < 3) {
             steppers[motor_id].step_position = 0;
-            printf("ACK,Motor %d position set to zero\n", motor_id);
+            printf("ACK,Motor %d teve posicao zerada\n", motor_id);
         } else {
-            printf("ERROR,Invalid motor ID: %d\n", motor_id);
+            printf("ERROR,ID de motor invalido: %d\n", motor_id);
             return;
         }
     } else {
@@ -767,7 +773,7 @@ void parse_setzero_command(const char* params) {
         for (uint i = 0; i < active_motor_count && i < 3; i++) {
             steppers[i].step_position = 0;
         }
-        printf("ACK,All motor positions set to zero\n");
+        printf("ACK,Todos os motores tiveram as posicoes zeradas\n");
     }
 
     send_position_update();
