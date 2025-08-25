@@ -13,7 +13,7 @@
 #define JOYSTICK_X_PIN 26
 #define JOYSTICK_Y_PIN 27
 
-// System state enumeration
+// Define os estados do sistema
 typedef enum {
     STATE_JOYSTICK = 0,
     STATE_COMMAND = 1
@@ -52,39 +52,46 @@ typedef struct {
     alarm_id_t alarm_id;
 } stepper_motor_t;
 
+// Declara os motores de passo
 stepper_motor_t steppers[3] = {
     { .dir_pin = 0, .step_pin = 1, .ms1_pin = 13, .ms2_pin = 14, .ms3_pin = 15 },
     { .dir_pin = 17, .step_pin = 16, .ms1_pin = 13, .ms2_pin = 14, .ms3_pin = 15 }
 };
 
-// Add these global variables after your stepper_motor_t definitions
+// Define variáveis realacionadas aos comandos enviados da interface
 #define COMMAND_BUFFER_SIZE 64
 char command_buffer[COMMAND_BUFFER_SIZE];
 int command_buffer_pos = 0;
 bool command_ready = false;
 
-// Joystick calibration variables
+// Constantes para leitura do joystick
 #define NUM_CAL_SAMPLES 100
 #define CAL_SAMPLE_DELAY_MS 5
-
-// margem morta (deadzone) em contagens ADC, ajuste se necessário
-const uint16_t DEADZONE = 200; // ~30/4095 ~ small tolerance. Ajuste conforme ruído do seu joystick
-const uint16_t MAX_INTERVAL_JOYSTICK = 1750; // us
-
+const uint16_t DEADZONE = 200;
+const uint16_t MAX_INTERVAL_JOYSTICK = 1750; // Máxima velocidade imposta sobre o comando
 uint16_t joystick_x_center = 2048;
 uint16_t joystick_y_center = 2048;
 
-// System state variables
+// Define o estado atual do sistema e a quantidade de motores ativos no momento
 system_state_t current_state = STATE_JOYSTICK;
-uint8_t active_motor_count = 2; // define o numero de motores ligados
+uint8_t active_motor_count = 2;
 
 // Declaração de funções
+// Controle dos motores
 int64_t alarm_irq_handler(alarm_id_t id, void *user_data);
 void init_stepper_motor(stepper_motor_t *motor);
 void move_n_steps(stepper_motor_t *motor, int32_t steps);
 void move_to_position(stepper_motor_t *motor, int32_t target, bool wait);
+void stop_all_motors(void);
+void start_motor_continuous(stepper_motor_t *motor);
+void stop_motor(stepper_motor_t *motor);
+
+// Declaração de funções
+// Definição de outras tarefas
 bool led_callback(repeating_timer_t *rt);
-// Add these function prototypes after your existing ones
+
+// Declaração de funções
+// Processamento de comandos vindos da interface
 void process_serial_input(void);
 void handle_command(const char* command);
 void parse_move_command(const char* params);
@@ -95,25 +102,25 @@ void parse_moveto_command(const char* params);
 void parse_setzero_command(const char* params);
 void send_state_update(void);
 void send_position_update(void);
-void stop_all_motors(void);
 
-// novos protótipos
-void start_motor_continuous(stepper_motor_t *motor);
-void stop_motor(stepper_motor_t *motor);
+// Declaração de funções
+// Leitura de dados do joystick
 uint16_t read_joystick_average(int adc_input, int samples, int delay_ms);
 void control_motor_from_joystick(stepper_motor_t *motor, uint16_t reading, uint16_t center);
 
-// Função principal
+
 int main (void) {
     stdio_init_all();
 
+    // Inicializa o ADC para o joystick
     adc_init();
     adc_gpio_init(JOYSTICK_X_PIN);
     adc_gpio_init(JOYSTICK_Y_PIN);
 
+    // Inicializa o LED do raspberry
     gpio_init(LED_PIN); gpio_set_dir(LED_PIN, GPIO_OUT); gpio_put(LED_PIN, 0);
 
-    // Cria instância do timer para o LED
+    // Cria instância do timer para o LED e chama a cada 500 ms
     repeating_timer_t led_timer;
     add_repeating_timer_ms(500, led_callback, NULL, &led_timer);
 
@@ -122,12 +129,11 @@ int main (void) {
         init_stepper_motor(&steppers[i]);
     }
 
-    const int MOTOR_STEPS = 48;
-    int32_t steps_per_rev = MOTOR_STEPS * 16; // 768 passos/rev
-
+    // Delay para dar tempo de ligar o serial
     sleep_ms(5000);
 
     // Calibração inicial do joystick: lê 100 amostras e define o centro
+    // Nesse momento, o joystick não deve ser movido
     joystick_x_center = read_joystick_average(0, NUM_CAL_SAMPLES, CAL_SAMPLE_DELAY_MS);
     printf("Joystick X center (avg %d samples) = %u\n", NUM_CAL_SAMPLES, joystick_x_center);
     joystick_y_center = read_joystick_average(1, NUM_CAL_SAMPLES, CAL_SAMPLE_DELAY_MS);
@@ -135,38 +141,39 @@ int main (void) {
 
     printf("Iniciando demo para 2 motores...\n");
 
-    // Send initial state and position after initialization
+    // Envia o estado do sistema e a posição atual para a interface (INICIALIZAÇÃO DA INTERFACE)
     send_state_update();
     send_position_update();
 
     while (true) {
-        // Process any incoming serial commands
+        // Processa os dados vindos via serial (dados enviados pela interface)
         process_serial_input();
 
+        // Se o comando foi processado, lidar com o comando
         if (command_ready) {
+            // Executa a função relacionada ao comando
             handle_command(command_buffer);
             command_buffer_pos = 0;
             command_ready = false;
         }
 
-        // Only process joystick input in JOYSTICK mode
+        // Se o estado do sistema for JOYSTICK
         if (current_state == STATE_JOYSTICK) {
             // Realiza a leitura dos eixos x e y
             adc_select_input(0);
             uint16_t x_reading = adc_read();
-
             adc_select_input(1);
             uint16_t y_reading = adc_read();
 
             // Controla o motor 0
             control_motor_from_joystick(&steppers[0], x_reading, joystick_x_center);
 
-            // Controla o motor 1
+            // Caso dois motores estiverem ativos, executar o segundo motor
             if (active_motor_count >= 2) {
                 control_motor_from_joystick(&steppers[1], y_reading, joystick_y_center);
             }
 
-            // Only send data if there's significant change
+            // Envia os dados lidos pelo joystick para a interface (Apenas se eles mudaram)
             static uint16_t last_x_reading = 0;
             static uint16_t last_y_reading = 0;
             static float last_x_interval = 0;
@@ -178,11 +185,15 @@ int main (void) {
                 (active_motor_count >= 2 && fabs(steppers[1].actual_step_interval - last_y_interval) > 50.0f)) {
 
                 if (active_motor_count >= 2) {
+                    // Envia os dados via serial para o caso de dois motores:
+                    // DATA,<x_reading>,<y_reading>,<motor_0_dir>,<motor_1_dir>,<motor_0_speed>,<motor_1_speed>
                     printf("DATA,%u,%u,%d,%d,%.1f,%.1f\n",
                            x_reading, y_reading,
                            steppers[0].dir, steppers[1].dir,
                            steppers[0].actual_step_interval, steppers[1].actual_step_interval);
                 } else {
+                    // Envia os dados via serial para o caso de um motores:
+                    // DATA,<x_reading>,<y_reading>,<motor_0_dir>,<motor_0_speed>
                     printf("DATA,%u,%u,%d,0,%.1f,0.0\n",
                            x_reading, y_reading,
                            steppers[0].dir,
@@ -197,11 +208,11 @@ int main (void) {
                 }
             }
         } else {
-            // In command mode, send minimal data or status
-            printf("DATA,0,0,0,0,0.0,0.0\n"); // Or comment this out if no data needed
+            // No modo COMMAND, não envia nada
+            printf("DATA,0,0,0,0,0.0,0.0\n");
         }
 
-        // Send periodic position updates (every 100 loops = ~1 second)
+        // Envia atualizações de estado do sistema
         static int position_update_counter = 0;
         if (++position_update_counter >= 200) {
             send_position_update();
