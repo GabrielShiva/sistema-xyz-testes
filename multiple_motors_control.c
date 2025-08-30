@@ -328,14 +328,14 @@ int main (void) {
 
     while (true) {
         // --------- TESTE PARA MOVIMENTAR DOIS MOTORES AO MESMO TEMPO
-        start_move_to(&steppers[0], 4608);
-        start_move_to(&steppers[1], 6912);
+        // start_move_to(&steppers[0], 4608);
+        // start_move_to(&steppers[1], 6912);
 
-        while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
-            tight_loop_contents();
-        }
+        // while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
+        //     tight_loop_contents();
+        // }
 
-        while(true);
+        // while(true);
 
         // --------- TESTE PARA PARAR O MOTOR
         // start_move_to(&steppers[0], 10000);
@@ -376,50 +376,50 @@ int main (void) {
 
 
         // --------- TESTE PARA MOVIMENTAR DOIS MOTORES
-        // start_move_to(&steppers[0], 192);
-        // start_move_to(&steppers[1], 192);
+        start_move_to(&steppers[0], 192);
+        start_move_to(&steppers[1], 192);
 
-        // while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
-        //     tight_loop_contents();
-        // }
+        while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
+            tight_loop_contents();
+        }
 
-        // /* Agenda movimentos para 384 passos */
-        // start_move_to(&steppers[0], 384);
-        // start_move_to(&steppers[1], 384);
+        /* Agenda movimentos para 384 passos */
+        start_move_to(&steppers[0], 384);
+        start_move_to(&steppers[1], 384);
 
-        // while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
-        //     tight_loop_contents();
-        // }
+        while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
+            tight_loop_contents();
+        }
 
-        // /* Agenda movimentos para 576 passos */
-        // start_move_to(&steppers[0], 576);
-        // start_move_to(&steppers[1], 576);
+        /* Agenda movimentos para 576 passos */
+        start_move_to(&steppers[0], 576);
+        start_move_to(&steppers[1], 576);
 
-        // while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
-        //     tight_loop_contents();
-        // }
+        while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
+            tight_loop_contents();
+        }
 
-        // /* Agenda movimentos para 768 passos */
-        // start_move_to(&steppers[0], 768);
-        // start_move_to(&steppers[1], 768);
+        /* Agenda movimentos para 768 passos */
+        start_move_to(&steppers[0], 768);
+        start_move_to(&steppers[1], 768);
 
-        // while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
-        //     tight_loop_contents();
-        // }
+        while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
+            tight_loop_contents();
+        }
 
-        // sleep_ms(1500);
+        sleep_ms(1500);
 
-        // /* Volta para a posição 0 (ambos motores) */
-        // start_move_to(&steppers[0], 0);
-        // start_move_to(&steppers[1], 0);
+        /* Volta para a posição 0 (ambos motores) */
+        start_move_to(&steppers[0], 0);
+        start_move_to(&steppers[1], 0);
 
-        // while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
-        //     tight_loop_contents();
-        // }
+        while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
+            tight_loop_contents();
+        }
 
-        // printf("Todos os motores executaram os movimentos!\n");
+        printf("Todos os motores executaram os movimentos!\n");
 
-        // while (true);
+        while (true);
     }
 
     return 0;
