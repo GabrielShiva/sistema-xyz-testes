@@ -18,19 +18,38 @@
 #define JOYSTICK_X_PIN       26
 #define JOYSTICK_Y_PIN       27
 
+#define LIMIT_SWITCH_X_PIN 9
+#define LIMIT_SWITCH_Y_PIN 8
+
 #define COMMAND_BUFFER_SIZE  64
 #define NUM_CAL_SAMPLES      100
 #define CAL_SAMPLE_DELAY_MS  5
 #define DEADZONE             200
 #define MAX_INTERVAL_JOYSTICK 1750
 
+#define MAX_SAVED_POSITIONS 26
+
+// Define os parâmetros de homing
+#define HOMING_SPEED_SLOW 2000  // μs - slow speed for final approach
+#define HOMING_SPEED_FAST 1000  // μs - fast speed for initial movement
+#define HOMING_BACKOFF_STEPS 130 // steps to back off from limit switch
+
 // --- Tipos de Dados Globais ---
 
 // Define os estados do sistema
 typedef enum {
     STATE_JOYSTICK = 0,
-    STATE_COMMAND = 1
+    STATE_COMMAND = 1,
+    STATE_HOMING = 2
 } system_state_t;
+
+// Estrutura que representa o motor de passo
+typedef struct {
+    char character;
+    int32_t x_position;
+    int32_t y_position;
+    bool is_used;
+} saved_position_t;
 
 // Estrutura que representa o motor de passo
 typedef struct {
@@ -63,6 +82,14 @@ typedef struct {
     volatile bool continuous_mode;
     volatile bool alarm_active;
     alarm_id_t alarm_id;
+
+    // Controle de homing (definição de referência para os eixos x e y))
+    volatile bool homing_mode;
+    volatile bool is_homed;
+    volatile bool limit_switch_triggered;
+
+    // Pino do switch de limite
+    uint limit_switch_pin;
 } stepper_motor_t;
 
 
@@ -83,5 +110,7 @@ extern uint16_t joystick_y_center;
 // Variáveis de estado do sistema
 extern system_state_t current_state;
 extern uint8_t active_motor_count;
+
+extern saved_position_t saved_positions[MAX_SAVED_POSITIONS];
 
 #endif // GLOBALS_H

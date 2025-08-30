@@ -2,6 +2,8 @@
 
 #include "command_handler.h"
 #include "stepper_control.h" // Precisa das funções de controle do motor
+#include "homing.h"
+#include "position_handler.h"
 
 // Funções de parsing (internas a este módulo)
 static void parse_move_command(const char* params);
@@ -10,6 +12,11 @@ static void parse_mode_command(const char* params);
 static void parse_motors_command(const char* params);
 static void parse_moveto_command(const char* params);
 static void parse_setzero_command(const char* params);
+
+void parse_savepos_command(const char* params);
+void parse_recallpos_command(const char* params);
+void parse_home_command(const char* params);
+void parse_clearpos_command(void);
 
 void process_serial_input(void) {
     int c = getchar_timeout_us(0);
@@ -63,6 +70,17 @@ void send_position_update(void) {
     printf("POSITION");
     for (uint i = 0; i < active_motor_count && i < 3; i++) {
         printf(",%ld", steppers[i].step_position);
+    }
+    printf("\n");
+}
+
+// Envia o status do processo de HOMING dos motores
+void send_homing_status(void) {
+    printf("HOMING_STATUS");
+    for (uint i = 0; i < active_motor_count && i < 3; i++) {
+        stepper_motor_t *motor = &steppers[i];
+        bool limit_state = read_limit_switch(motor);
+        printf(",%d,%d", motor->is_homed ? 1 : 0, limit_state ? 1 : 0);
     }
     printf("\n");
 }
@@ -354,4 +372,170 @@ void parse_setzero_command(const char* params) {
     }
 
     send_position_update();
+}
+
+// Salva a posição atual do atuador e associa a uma letra: SAVEPOS,<character>,<x_pos>,<y_pos>
+void parse_savepos_command(const char* params) {
+    char* param_copy = malloc(strlen(params) + 1);
+    strcpy(param_copy, params);
+
+    char* char_param = strtok(param_copy, ",");
+    char* x_param = strtok(NULL, ",");
+    char* y_param = strtok(NULL, ",");
+
+    if (!char_param || !x_param || !y_param) {
+        printf("ERROR,Parametros insuficientes para SAVEPOS. Formato: character,x_pos,y_pos\n");
+        free(param_copy);
+        return;
+    }
+
+    char character = char_param[0];
+    int32_t x_pos = atoi(x_param);
+    int32_t y_pos = atoi(y_param);
+
+    // Faz a validação do caractere
+    if (!((character >= 'a' && character <= 'z') ||
+          (character >= '0' && character <= '9'))) {
+        printf("ERROR,Caractere invalido: %c (use a-z ou 0-9)\n", character);
+        free(param_copy);
+        return;
+    }
+
+    int index = find_saved_position_index(character);
+
+    if (index == -1) {
+        for (int i = 0; i < MAX_SAVED_POSITIONS; i++) {
+            if (!saved_positions[i].is_used) {
+                index = i;
+                break;
+            }
+        }
+    }
+
+    if (index == -1) {
+        printf("ERROR,Memoria de posicoes cheia (maximo %d posicoes)\n", MAX_SAVED_POSITIONS);
+        free(param_copy);
+        return;
+    }
+
+    // Salava as coordenadas no array
+    saved_positions[index].character = character;
+    saved_positions[index].x_position = x_pos;
+    saved_positions[index].y_position = y_pos;
+    saved_positions[index].is_used = true;
+
+    printf("ACK,Posicao '%c' salva: X=%d, Y=%d\n", character, x_pos, y_pos);
+    send_saved_positions_update();
+
+    free(param_copy);
+}
+
+// Recupera a posição da letra especificada: RECALLPOS,<character>
+void parse_recallpos_command(const char* params) {
+    if (strlen(params) != 1) {
+        printf("ERROR,RECALLPOS requer exatamente um caractere\n");
+        return;
+    }
+
+    char character = params[0];
+    int index = find_saved_position_index(character);
+
+    if (index == -1) {
+        printf("ERROR,Posicao '%c' nao encontrada\n", character);
+        return;
+    }
+
+    // Define a posição x e y alvo para os motores
+    int32_t target_x = saved_positions[index].x_position;
+    int32_t target_y = saved_positions[index].y_position;
+
+    printf("ACK,Movendo para posicao salva '%c': X=%d, Y=%d\n",
+           character, target_x, target_y);
+
+    // Para todos os motores, caso estejam se movimentando
+    stop_all_motors();
+    sleep_ms(10);
+
+    // Move motor 0 (eixo x)
+    // Realiza a diferença entre a posição atual do motor e a desejada
+    stepper_motor_t *motor0 = &steppers[0];
+    int32_t steps_x = target_x - (int32_t)motor0->step_position;
+    if (steps_x != 0) {
+        move_n_steps(motor0, steps_x);
+    }
+
+    // Move motor 1 (eixo y)
+    if (active_motor_count >= 2) {
+        stepper_motor_t *motor1 = &steppers[1];
+        int32_t steps_y = target_y - (int32_t)motor1->step_position;
+        if (steps_y != 0) {
+            move_n_steps(motor1, steps_y);
+        }
+    }
+
+    // Espera pelo termino dos movimentos
+    bool all_done = false;
+    while (!all_done) {
+        all_done = true;
+        if (motor0->alarm_active && !motor0->movement_done) {
+            all_done = false;
+        }
+        if (active_motor_count >= 2) {
+            stepper_motor_t *motor1 = &steppers[1];
+            if (motor1->alarm_active && !motor1->movement_done) {
+                all_done = false;
+            }
+        }
+        if (!all_done) {
+            sleep_ms(1);
+        }
+    }
+
+    // Envia a atualização via serial sobre a posição dos motores
+    printf("ACK,Posicao '%c' alcancada\n", character);
+    send_position_update();
+}
+
+// Limpa o array de posições: CLEARPOS
+void parse_clearpos_command(void) {
+    init_saved_positions();
+    printf("ACK,Todas as posicoes salvas foram apagadas\n");
+    send_saved_positions_update();
+}
+
+// Realiza o homing para os motores: HOME,<motor_id> ou somente HOME para todos os motores
+void parse_home_command(const char* params) {
+    stop_all_motors();
+
+    current_state = STATE_HOMING;
+    send_state_update();
+
+    if (params && strlen(params) > 0) {
+        // HOME,<motor_id> - um motor em específico
+        int motor_id = atoi(params);
+        if (motor_id >= 0 && motor_id < (int)active_motor_count && motor_id < 3) {
+            printf("ACK,Iniciando homing do motor %d\n", motor_id);
+
+            if (home_single_motor(&steppers[motor_id], motor_id)) {
+                printf("ACK,Homing do motor %d concluido\n", motor_id);
+            } else {
+                printf("ERROR,Falha no homing do motor %d\n", motor_id);
+            }
+        } else {
+            printf("ERROR,ID de motor invalido para homing: %d\n", motor_id);
+        }
+    } else {
+        // HOME - todos os motores
+        printf("ACK,Iniciando homing de todos os motores\n");
+
+        if (home_all_motors()) {
+            printf("ACK,Homing de todos os motores concluido\n");
+        } else {
+            printf("ERROR,Falha no homing de alguns motores\n");
+        }
+    }
+
+    current_state = STATE_COMMAND;
+    send_state_update();
+    send_homing_status();
 }

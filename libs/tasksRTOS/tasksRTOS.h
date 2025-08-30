@@ -8,6 +8,8 @@
 #include "stepper_control.h"
 #include "joystick_control.h"
 #include "command_handler.h"
+#include "position_handler.h"
+#include "homing.h"
 
 void vSerialTask();
 

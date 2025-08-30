@@ -16,6 +16,8 @@ uint16_t joystick_y_center = 2048;
 system_state_t current_state = STATE_JOYSTICK;
 uint8_t active_motor_count = 2;
 
+saved_position_t saved_positions[MAX_SAVED_POSITIONS];
+
 
 // Função de callback para o LED
 bool led_callback(repeating_timer_t *rt) {
@@ -26,33 +28,45 @@ bool led_callback(repeating_timer_t *rt) {
 int main (void) {
     stdio_init_all();
 
-    // Inicializa ADC e LED
+    // Inicializa o ADC para o joystick
     adc_init();
     adc_gpio_init(JOYSTICK_X_PIN);
     adc_gpio_init(JOYSTICK_Y_PIN);
+
+    // Inicializa o LED do raspberry
     gpio_init(LED_PIN); gpio_set_dir(LED_PIN, GPIO_OUT); gpio_put(LED_PIN, 0);
 
+    // Cria instância do timer para o LED e chama a cada 500 ms
     repeating_timer_t led_timer;
     add_repeating_timer_ms(500, led_callback, NULL, &led_timer);
+
+    // Initialize limit switches
+    init_limit_switches();
+
+    // Initialize saved positions array
+    init_saved_positions();
 
     // Inicializa os motores
     for (uint i = 0; i < 2; i++) {
         init_stepper_motor(&steppers[i]);
     }
 
-    sleep_ms(5000); // Espera pelo serial
+    // Delay para dar tempo de ligar o serial
+    sleep_ms(5000);
 
-    // Calibração do joystick
-    joystick_x_center = read_joystick_average(0, NUM_CAL_SAMPLES, CAL_SAMPLE_DELAY_MS);
-    printf("Joystick X center (avg %d samples) = %u\n", NUM_CAL_SAMPLES, joystick_x_center);
+    // Calibração inicial do joystick: lê 100 amostras e define o centro
+    // Nesse momento, o joystick não deve ser movido    joystick_x_center = read_joystick_average(0, NUM_CAL_SAMPLES, CAL_SAMPLE_DELAY_MS);
+    printf("Centro - Joystick X  (media para %d amostras) = %u\n", NUM_CAL_SAMPLES, joystick_x_center);
     joystick_y_center = read_joystick_average(1, NUM_CAL_SAMPLES, CAL_SAMPLE_DELAY_MS);
-    printf("Joystick Y center (avg %d samples) = %u\n", NUM_CAL_SAMPLES, joystick_y_center);
+    printf("Centro - Joystick Y (media para %d amostras) = %u\n", NUM_CAL_SAMPLES, joystick_y_center);
 
-    printf("Iniciando demo para %d motores...\n", active_motor_count);
+    printf("Iniciando 2 motores...\n");
 
-    // Envia estado inicial para a interface
+    // Envia o estado do sistema e a posição atual para a interface (INICIALIZAÇÃO DA INTERFACE)
     send_state_update();
     send_position_update();
+    send_saved_positions_update();
+    send_homing_status();
 
     xTaskCreate(vSerialTask, "Serial Task", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
     xTaskCreate(vJoystickTask, "Joystick Task", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
