@@ -126,6 +126,7 @@ void parse_moveto_command(const char* params);
 void parse_setzero_command(const char* params);
 void parse_savepos_command(const char* params);
 void parse_recallpos_command(const char* params);
+void parse_recallstring_command(const char* params);
 void parse_home_command(const char* params);
 void parse_clearpos_command(void);
 void parse_testallpos_command(void);
@@ -803,6 +804,13 @@ void handle_command(const char* command) {
             parse_testallpos_command();
         }
     }
+    else if (strncmp(command, "RECALLSTRING,", 13) == 0) {
+        if (current_state != STATE_COMMAND) {
+            printf("ERROR,Nao pode executar RECALLSTRING no modo joystick\n");
+            return;
+        }
+        parse_recallstring_command(command + 13);
+    }
     else if (strncmp(command, "SETZERO", 7) == 0) {
         if (current_state != STATE_COMMAND) {
             printf("ERROR,Nao pode definir origem no modo joystick\n");
@@ -1251,6 +1259,83 @@ void parse_recallpos_command(const char* params) {
     // printf("ACK,Finalizaou movimento\n");
     printf("ACK,valor recebido = %c\n", caracter);
     send_position_update();
+}
+
+// Recupera os caracteres que compõem a string: RECALLSTRING,<texto>
+void parse_recallstring_command(const char* params) {
+    // Verifica se uma string foi passada, se não, retorna mensagem de erro
+    if (!params || strlen(params) == 0) {
+        printf("ERROR,RECALLSTRING requer uma string nao vazia\n");
+        return;
+    }
+
+    // Obtém o tamanho da string
+    size_t len = strlen(params);
+
+    for (size_t i = 0; i < len; i++) {
+        char character = params[i];
+        int index = find_saved_position_index(character);
+
+        // Se o caractere não for encontrado no array, então pula a iteração
+        if (index == -1) {
+            printf("ERROR,Posicao '%c' nao encontrada (pulando)\n", character);
+            continue;
+        }
+
+        // Caso o caractere tenha sido encontrado, recupera as posições x e y
+        int32_t target_x = saved_positions[index].x_position;
+        int32_t target_y = saved_positions[index].y_position;
+
+        // Envia mensagem indicando: movimento iniciado
+        printf("ACK,Palavra: '%s' --- Movendo para '%c': X=%d, Y=%d\n",
+               params, character, target_x, target_y);
+
+        // Para todos os motores antes de mover
+        stop_all_motors();
+        sleep_ms(10);
+
+        // Move motor 0 (X)
+        stepper_motor_t *motor0 = &steppers[0];
+        int32_t steps_x = target_x - (int32_t)motor0->step_position;
+        if (steps_x != 0) {
+            move_n_steps(motor0, steps_x);
+        }
+
+        // Move motor 1 (Y)
+        if (active_motor_count >= 2) {
+            stepper_motor_t *motor1 = &steppers[1];
+            int32_t steps_y = target_y - (int32_t)motor1->step_position;
+            if (steps_y != 0) {
+                move_n_steps(motor1, steps_y);
+            }
+        }
+
+        // Espera concluir o movimento
+        bool all_done = false;
+        while (!all_done) {
+            all_done = true;
+            if (motor0->alarm_active && !motor0->movement_done) {
+                all_done = false;
+            }
+            if (active_motor_count >= 2) {
+                stepper_motor_t *motor1 = &steppers[1];
+                if (motor1->alarm_active && !motor1->movement_done) {
+                    all_done = false;
+                }
+            }
+            if (!all_done) {
+                sleep_ms(1);
+            }
+        }
+
+        // Atualiza interface
+        send_position_update();
+
+        // Delay opcional entre letras
+        sleep_ms(300);
+    }
+
+    printf("ACK,Palavra '%s' foi percorrida com sucesso\n", params);
 }
 
 // Envia as posições que estão salvas no array para a GUI

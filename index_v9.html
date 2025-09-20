@@ -1119,7 +1119,7 @@
                 let text = document.querySelector('#string-input').value;
 
                 if (confirm(`Você quer testar a reprodução da palavra: ${text}?`)) {
-                    await this.sendCommand(`TESTSTRING,${text}`);
+                    await this.sendCommand(`RECALLSTRING,${text}`);
                 }
             }
 
