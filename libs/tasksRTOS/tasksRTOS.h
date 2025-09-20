@@ -11,8 +11,13 @@
 #include "position_handler.h"
 #include "homing.h"
 
+#include "connect_wifi.h"
+#include "http_client.h"
+
 void vSerialTask();
 
 void vJoystickTask();
+
+void vHttpClientTask();
 
 #endif

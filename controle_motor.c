@@ -68,8 +68,9 @@ int main (void) {
     send_saved_positions_update();
     send_homing_status();
 
-    xTaskCreate(vSerialTask, "Serial Task", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
-    xTaskCreate(vJoystickTask, "Joystick Task", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
+    // xTaskCreate(vSerialTask, "Serial Task", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
+    // xTaskCreate(vJoystickTask, "Joystick Task", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
+    xTaskCreate(vHttpClientTask, "Http Client Task", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
 
     vTaskStartScheduler();
     
