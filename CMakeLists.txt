@@ -72,6 +72,7 @@ target_link_libraries(controle_motor
     hardware_timer
     hardware_adc
     hardware_irq
+    hardware_uart
 )
 
 # Add the standard include files to the build

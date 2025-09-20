@@ -4,10 +4,14 @@
 #include <math.h>
 
 #include "pico/stdlib.h"
+#include "hardware/uart.h"
 
 #include "hardware/irq.h"
 #include "hardware/timer.h"
 #include "hardware/adc.h"
+
+#define UART_TX 20
+#define UART_RX 21
 
 #define LED_PIN        25
 #define JOYSTICK_X_PIN 26
@@ -38,20 +42,16 @@ typedef struct {
     // Pinos de controle
     uint dir_pin;
     uint step_pin;
-
     // Pinos de resolução
     uint ms1_pin;
     uint ms2_pin;
     uint ms3_pin;
-
     // Pino do switch de limite
     uint limit_switch_pin;
-
     // Variáveis de controle de velocidade
     volatile float initial_step_interval;
     volatile float actual_step_interval;
     volatile float half_period_interval;
-
     volatile uint32_t total_steps;
     volatile uint32_t step_count;
     volatile uint32_t ramp_up_count;
@@ -59,15 +59,12 @@ typedef struct {
     volatile uint32_t acceleration_counter;
     volatile uint32_t max_speed;
     volatile int      dir;
-
     volatile bool movement_done;
     volatile bool step_state;
-
     // Controle via joystick
     volatile bool continuous_mode;
     volatile bool alarm_active;
     alarm_id_t alarm_id;
-
     // Controle de homing (definição de referência para os eixos x e y))
     volatile bool homing_mode;
     volatile bool is_homed;
@@ -90,7 +87,7 @@ bool command_ready = false;
 #define NUM_CAL_SAMPLES 100
 #define CAL_SAMPLE_DELAY_MS 5
 const uint16_t DEADZONE = 200;
-const uint16_t MAX_INTERVAL_JOYSTICK = 1750; // Máxima velocidade imposta sobre o comando
+const uint16_t MAX_INTERVAL_JOYSTICK = 400; // Máxima velocidade imposta sobre o comando
 uint16_t joystick_x_center = 2048;
 uint16_t joystick_y_center = 2048;
 
@@ -131,6 +128,7 @@ void parse_savepos_command(const char* params);
 void parse_recallpos_command(const char* params);
 void parse_home_command(const char* params);
 void parse_clearpos_command(void);
+void parse_testallpos_command(void);
 void send_state_update(void);
 void send_position_update(void);
 void send_homing_status(void);
@@ -145,6 +143,7 @@ void control_motor_from_joystick(stepper_motor_t *motor, uint16_t reading, uint1
 void init_saved_positions(void);
 void send_saved_positions_update(void);
 int find_saved_position_index(char character);
+bool saved_positions_is_empty(void);
 
 // Declaração de funções
 // Funções de homing
@@ -190,11 +189,21 @@ int main (void) {
 
     printf("Iniciando 2 motores...\n");
 
+    // saved_positions[0] = (saved_position_t){ .character = 'a', .x_position = 5165, .y_position = 6768, .is_used = true };
+    // saved_positions[1] = (saved_position_t){ .character = 'b', .x_position = 5690, .y_position = 172, .is_used = true };
+    // saved_positions[2] = (saved_position_t){ .character = 'c', .x_position = 4065, .y_position = 3387, .is_used = true };
+    // saved_positions[3] = (saved_position_t){ .character = 'd', .x_position = 2339, .y_position = 5139, .is_used = true };
+
     // Envia o estado do sistema e a posição atual para a interface (INICIALIZAÇÃO DA INTERFACE)
     send_state_update();
     send_position_update();
     send_saved_positions_update();
     send_homing_status();
+
+    uart_init(uart1, 115200);
+
+    gpio_set_function(UART_TX, GPIO_FUNC_UART);
+    gpio_set_function(UART_RX, GPIO_FUNC_UART);
 
     while (true) {
         // Processa os dados vindos via serial (dados enviados pela interface)
@@ -785,6 +794,15 @@ void handle_command(const char* command) {
     else if (strcmp(command, "CLEARPOS") == 0) {
         parse_clearpos_command();
     }
+    else if (strcmp(command, "TESTALLPOS") == 0) {
+        bool is_empty = saved_positions_is_empty();
+
+        if (is_empty) {
+            printf("ERROR,nenhuma posicao foi encontrada\n");
+        } else {
+            parse_testallpos_command();
+        }
+    }
     else if (strncmp(command, "SETZERO", 7) == 0) {
         if (current_state != STATE_COMMAND) {
             printf("ERROR,Nao pode definir origem no modo joystick\n");
@@ -1166,6 +1184,8 @@ void parse_recallpos_command(const char* params) {
         return;
     }
 
+    // Obtém o caractere especificado no comando
+    // e recupera as posições x e y associados ao mesmo
     char character = params[0];
     int index = find_saved_position_index(character);
 
@@ -1220,8 +1240,16 @@ void parse_recallpos_command(const char* params) {
         }
     }
 
+    // Espera a tecla ser pressionada
+    char caracter = uart_getc(uart1);
+
+    while (caracter != character) {
+        caracter = uart_getc(uart1);
+    }
+
     // Envia a atualização via serial sobre a posição dos motores
-    printf("ACK,Posicao '%c' alcancada\n", character);
+    // printf("ACK,Finalizaou movimento\n");
+    printf("ACK,valor recebido = %c\n", caracter);
     send_position_update();
 }
 
@@ -1246,6 +1274,75 @@ void parse_clearpos_command(void) {
     init_saved_positions();
     printf("ACK,Todas as posicoes salvas foram apagadas\n");
     send_saved_positions_update();
+}
+
+bool saved_positions_is_empty(void) {
+    for (int i = 0; i < MAX_SAVED_POSITIONS; i++) {
+        if (saved_positions[i].is_used) {
+            return false; // Encontrou ao menos um em uso → não está vazio
+        }
+    }
+    return true; // Nenhum em uso → está vazio
+}
+
+void parse_testallpos_command(void) {
+    for (int i = 0; i < MAX_SAVED_POSITIONS; i++) {
+        if (saved_positions[i].is_used) {
+            printf("ACK,movendo o atuador para a letra %c (%d,%d)\n",
+                   saved_positions[i].character,
+                   saved_positions[i].x_position,
+                   saved_positions[i].y_position);
+
+            // Define a posição x e y alvo para os motores
+            int32_t target_x = saved_positions[i].x_position;
+            int32_t target_y = saved_positions[i].y_position;
+
+            // Para todos os motores, caso estejam se movimentando
+            stop_all_motors();
+            sleep_ms(10);
+
+            // Move motor 0 (eixo x)
+            // Realiza a diferença entre a posição atual do motor e a desejada
+            stepper_motor_t *motor0 = &steppers[0];
+            int32_t steps_x = target_x - (int32_t)motor0->step_position;
+            if (steps_x != 0) {
+                move_n_steps(motor0, steps_x);
+            }
+
+            // Move motor 1 (eixo y)
+            if (active_motor_count >= 2) {
+                stepper_motor_t *motor1 = &steppers[1];
+                int32_t steps_y = target_y - (int32_t)motor1->step_position;
+                if (steps_y != 0) {
+                    move_n_steps(motor1, steps_y);
+                }
+            }
+
+            // Espera pelo termino dos movimentos
+            bool all_done = false;
+            while (!all_done) {
+                all_done = true;
+                if (motor0->alarm_active && !motor0->movement_done) {
+                    all_done = false;
+                }
+                if (active_motor_count >= 2) {
+                    stepper_motor_t *motor1 = &steppers[1];
+                    if (motor1->alarm_active && !motor1->movement_done) {
+                        all_done = false;
+                    }
+                }
+                if (!all_done) {
+                    sleep_ms(1);
+                }
+            }
+
+            send_position_update();
+        }
+
+        sleep_ms(500);
+    }
+
+    printf("ACK,deslocamento por todos os pontos foi executado\n");
 }
 
 // Realiza o homing para os motores: HOME,<motor_id> ou somente HOME para todos os motores
