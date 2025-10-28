@@ -143,10 +143,9 @@ typedef struct {
  * via init_stepper_motor() antes do uso.
  */
 stepper_motor_t steppers[3] = {
-    /* Motor 1 */
     { .pin_dir = 0, .pin_step = 1, .pin_ms1 = 13, .pin_ms2 = 14, .pin_ms3 = 15 },
-    /* Motor 2 */
-    { .pin_dir = 17, .pin_step = 16, .pin_ms1 = 13, .pin_ms2 = 14, .pin_ms3 = 15 }
+    { .pin_dir = 16, .pin_step = 17, .pin_ms1 = 13, .pin_ms2 = 14, .pin_ms3 = 15 },
+    { .pin_dir = 19, .pin_step = 18, .pin_ms1 = 13, .pin_ms2 = 14, .pin_ms3 = 15 }
 };
 
 /* -------------------------
@@ -307,7 +306,7 @@ int main (void) {
     repeating_timer_t led_timer;
 
     /* Inicializa os motores */
-    for (uint i = 0; i < 2; i++) {
+    for (uint i = 0; i < 3; i++) {
         init_stepper_motor(&steppers[i]);
     }
 
@@ -328,14 +327,21 @@ int main (void) {
 
     while (true) {
         // --------- TESTE PARA MOVIMENTAR DOIS MOTORES AO MESMO TEMPO
-        // start_move_to(&steppers[0], 4608);
-        // start_move_to(&steppers[1], 6912);
+        start_move_to(&steppers[0], 4608);
+        start_move_to(&steppers[1], 6912);
+        start_move_to(&steppers[2], 6912);
 
-        // while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
-        //     tight_loop_contents();
-        // }
+        while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]) && is_movement_done(&steppers[2]))) {
+            tight_loop_contents();
+        }
 
-        // while(true);
+        sleep_ms(2000);
+
+        start_move_to(&steppers[0], 0);
+        start_move_to(&steppers[1], 0);
+        start_move_to(&steppers[2], 0);
+
+        while(true);
 
         // --------- TESTE PARA PARAR O MOTOR
         // start_move_to(&steppers[0], 10000);
@@ -376,46 +382,48 @@ int main (void) {
 
 
         // --------- TESTE PARA MOVIMENTAR DOIS MOTORES
-        start_move_to(&steppers[0], 192);
-        start_move_to(&steppers[1], 192);
+        // start_move_to(&steppers[0], 192);
+        // start_move_to(&steppers[1], 192);
 
-        while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
-            tight_loop_contents();
-        }
+        // while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
+        //     tight_loop_contents();
+        // }
 
-        /* Agenda movimentos para 384 passos */
-        start_move_to(&steppers[0], 384);
-        start_move_to(&steppers[1], 384);
+        // /* Agenda movimentos para 384 passos */
+        // start_move_to(&steppers[0], 384);
+        // start_move_to(&steppers[1], 384);
 
-        while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
-            tight_loop_contents();
-        }
+        // while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
+        //     tight_loop_contents();
+        // }
 
-        /* Agenda movimentos para 576 passos */
-        start_move_to(&steppers[0], 576);
-        start_move_to(&steppers[1], 576);
+        // /* Agenda movimentos para 576 passos */
+        // start_move_to(&steppers[0], 576);
+        // start_move_to(&steppers[1], 576);
 
-        while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
-            tight_loop_contents();
-        }
+        // while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
+        //     tight_loop_contents();
+        // }
 
-        /* Agenda movimentos para 768 passos */
-        start_move_to(&steppers[0], 768);
-        start_move_to(&steppers[1], 768);
+        // start_move_to(&steppers[2], -900);
 
-        while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
-            tight_loop_contents();
-        }
+        // /* Agenda movimentos para 768 passos */
+        // start_move_to(&steppers[0], 768);
+        // start_move_to(&steppers[1], 768);
 
-        sleep_ms(1500);
+        // while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
+        //     tight_loop_contents();
+        // }
 
-        /* Volta para a posição 0 (ambos motores) */
-        start_move_to(&steppers[0], 0);
-        start_move_to(&steppers[1], 0);
+        // sleep_ms(1500);
 
-        while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
-            tight_loop_contents();
-        }
+        // /* Volta para a posição 0 (ambos motores) */
+        // start_move_to(&steppers[0], 0);
+        // start_move_to(&steppers[1], 0);
+
+        // while (!(is_movement_done(&steppers[0]) && is_movement_done(&steppers[1]))) {
+        //     tight_loop_contents();
+        // }
 
         printf("Todos os motores executaram os movimentos!\n");
 
@@ -513,7 +521,7 @@ void init_stepper_motor(stepper_motor_t *motor) {
     motor->initial_step_interval_us = 6200.0f;
     motor->current_step_interval_us = motor->initial_step_interval_us;
     motor->half_step_interval_us    = motor->current_step_interval_us * 0.5f;
-    motor->min_step_interval_us     = 100;
+    motor->min_step_interval_us     = 200;
     motor->movement_complete        = true;
     motor->step_pin_state           = false;
     motor->position_steps           = 0;

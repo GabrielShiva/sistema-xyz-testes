@@ -10,17 +10,36 @@
 #include "hardware/timer.h"
 #include "hardware/adc.h"
 
-// #define UART_TX 20
-// #define UART_RX 21
+#define LED_PIN              25
 
-#define LED_PIN        25
-#define JOYSTICK_X_PIN 26
-#define JOYSTICK_Y_PIN 28
-#define LIMIT_SWITCH_X_PIN 9
-#define LIMIT_SWITCH_Y_PIN 8
-#define LIMIT_SWITCH_Z_PIN 10
-// #define LIMIT_SWITCH_X_PIN 10
-// #define LIMIT_SWITCH_Y_PIN 11
+// Parâmetros da comunicação UART
+#define UART_ID              uart1
+#define UART_TX              20
+#define UART_RX              21
+#define UART_BAUD_RATE       115200
+#define UART_BUFFER_SIZE     256
+
+// GPIOs do joystick
+#define JOYSTICK_X_PIN       27
+#define JOYSTICK_Y_PIN       28
+
+// Parâmetros para amostragem do centro do joystick
+#define NUM_CAL_SAMPLES      100
+#define CAL_SAMPLE_DELAY_MS  5
+
+// GPIOs do fim de curso
+#define LIMIT_SWITCH_X_PIN   9
+#define LIMIT_SWITCH_Y_PIN   8
+#define LIMIT_SWITCH_Z_PIN   10
+
+// Parâmetros de comando
+#define MAX_SAVED_POSITIONS  26
+#define COMMAND_BUFFER_SIZE  64
+
+// Parâmetros de homin
+#define HOMING_SPEED_SLOW    1000  // μs - slow speed for final approach
+#define HOMING_SPEED_FAST    950  // μs - fast speed for initial movement
+#define HOMING_BACKOFF_STEPS 50 // steps to back off from limit switch
 
 // Define os estados do sistema
 typedef enum {
@@ -37,7 +56,6 @@ typedef struct {
     bool is_used;
 } saved_position_t;
 
-#define MAX_SAVED_POSITIONS 26
 saved_position_t saved_positions[MAX_SAVED_POSITIONS];
 
 // Estrutura que representa o motor de passo
@@ -58,7 +76,7 @@ typedef struct {
     volatile uint32_t total_steps;
     volatile uint32_t step_count;
     volatile uint32_t ramp_up_count;
-    volatile int32_t step_position;
+    volatile uint32_t step_position;
     volatile uint32_t acceleration_counter;
     volatile uint32_t max_speed;
     volatile int      dir;
@@ -82,14 +100,11 @@ stepper_motor_t steppers[3] = {
 };
 
 // Define variáveis realacionadas aos comandos enviados da interface
-#define COMMAND_BUFFER_SIZE 64
 char command_buffer[COMMAND_BUFFER_SIZE];
 int command_buffer_pos = 0;
 bool command_ready = false;
 
 // Constantes para leitura do joystick
-#define NUM_CAL_SAMPLES 100
-#define CAL_SAMPLE_DELAY_MS 5
 const uint16_t DEADZONE = 200;
 const uint16_t MAX_INTERVAL_JOYSTICK = 400; // Máxima velocidade imposta sobre o comando
 uint16_t joystick_x_center = 2048;
@@ -98,11 +113,6 @@ uint16_t joystick_y_center = 2048;
 // Define o estado atual do sistema e a quantidade de motores ativos no momento
 system_state_t current_state = STATE_JOYSTICK;
 uint8_t active_motor_count = 3; // define o numero de motores ligados
-
-// Define os parâmetros de homing
-#define HOMING_SPEED_SLOW 1000  // μs - slow speed for final approach
-#define HOMING_SPEED_FAST 1000  // μs - fast speed for initial movement
-#define HOMING_BACKOFF_STEPS 130 // steps to back off from limit switch
 
 // Declaração de funções
 // Controle dos motores
@@ -120,7 +130,8 @@ bool led_callback(repeating_timer_t *rt);
 
 // Declaração de funções
 // Processamento de comandos vindos da interface
-void process_serial_input(void);
+// void process_serial_input(void);
+void process_uart_input(void);
 void handle_command(const char* command);
 void parse_move_command(const char* params);
 void parse_speed_command(const char* params);
@@ -183,25 +194,15 @@ int main (void) {
         init_stepper_motor(&steppers[i]);
     }
 
-    // Delay para dar tempo de ligar o serial
-    sleep_ms(5000);
-
     // Calibração inicial do joystick: lê 100 amostras e define o centro
-    // Nesse momento, o joystick não deve ser movido    joystick_x_center = read_joystick_average(0, NUM_CAL_SAMPLES, CAL_SAMPLE_DELAY_MS);
-    joystick_x_center = read_joystick_average(0, NUM_CAL_SAMPLES, CAL_SAMPLE_DELAY_MS);
-    printf("Centro - Joystick X  (media para %d amostras) = %u\n", NUM_CAL_SAMPLES, joystick_x_center);
+    // Nesse momento, o joystick não deve ser movido
     joystick_y_center = read_joystick_average(1, NUM_CAL_SAMPLES, CAL_SAMPLE_DELAY_MS);
-    printf("Centro - Joystick Y (media para %d amostras) = %u\n", NUM_CAL_SAMPLES, joystick_y_center);
 
-    printf("Iniciando 2 motores...\n");
-
-    saved_positions[0] = (saved_position_t){ .character = 'a', .x_position = 25003, .y_position = 2287, .is_used = true };
+    saved_positions[0] = (saved_position_t){ .character = 'a', .x_position = 1906, .y_position = 337, .is_used = true };
     saved_positions[1] = (saved_position_t){ .character = 'b', .x_position = 1051, .y_position = 1579, .is_used = true };
     saved_positions[2] = (saved_position_t){ .character = 'c', .x_position = 2818, .y_position = 2109, .is_used = true };
     saved_positions[3] = (saved_position_t){ .character = 'd', .x_position = 0, .y_position = 2195, .is_used = true };
     saved_positions[4] = (saved_position_t){ .character = 'e', .x_position = 4147, .y_position = 955, .is_used = true };
-    saved_positions[5] = (saved_position_t){ .character = 'n', .x_position = 14400, .y_position = 670, .is_used = true };
-    saved_positions[6] = (saved_position_t){ .character = 'i', .x_position = 12318, .y_position = 4409, .is_used = true };
 
     // Envia o estado do sistema e a posição atual para a interface (INICIALIZAÇÃO DA INTERFACE)
     send_state_update();
@@ -209,30 +210,24 @@ int main (void) {
     send_saved_positions_update();
     send_homing_status();
 
-    // uart_init(uart1, 115200);
-
-    // gpio_set_function(UART_TX, GPIO_FUNC_UART);
-    // gpio_set_function(UART_RX, GPIO_FUNC_UART);
-
-    // stepper_motor_t *motory = &steppers[0];
-    // stepper_motor_t *motorz = &steppers[1];
-
-    // stepper_motor_t *motor2 = &steppers[2];
-    // motor2->initial_step_interval  = 8000.0f;
-    // motor2->actual_step_interval   = motor2->initial_step_interval;
-    // motor2->half_period_interval   = motor2->actual_step_interval * 0.5f;
-    // motor2->max_speed              = 8000;
+    // Inicializa a UART para comunicar com a outra placa
+    uart_init(UART_ID, UART_BAUD_RATE);
+    gpio_set_function(UART_TX, GPIO_FUNC_UART);
+    gpio_set_function(UART_RX, GPIO_FUNC_UART);
 
     while (true) {
         // Processa os dados vindos via serial (dados enviados pela interface)
-        process_serial_input();
+        process_uart_input();
 
         // Se o comando foi processado, lidar com o comando
         if (command_ready) {
             // Executa a função relacionada ao comando
             handle_command(command_buffer);
+
             command_buffer_pos = 0;
             command_ready = false;
+            memset(command_buffer, 0, sizeof(command_buffer));
+            // command_buffer[0] = '\0';
         }
 
         // Se o estado do sistema for JOYSTICK
@@ -243,10 +238,8 @@ int main (void) {
             adc_select_input(1);
             uint16_t y_reading = adc_read();
 
-            // Controla o motor 0
+            // Controle dos motores x e y
             control_motor_from_joystick(&steppers[0], x_reading, joystick_x_center);
-
-            // Caso dois motores estiverem ativos, executar o segundo motor
             if (active_motor_count >= 2) {
                 control_motor_from_joystick(&steppers[1], y_reading, joystick_y_center);
             }
@@ -261,33 +254,14 @@ int main (void) {
                 abs((int)y_reading - (int)last_y_reading) > 10 ||
                 fabs(steppers[0].actual_step_interval - last_x_interval) > 50.0f ||
                 (active_motor_count >= 2 && fabs(steppers[1].actual_step_interval - last_y_interval) > 50.0f)) {
+                    last_x_reading = x_reading;
+                    last_y_reading = y_reading;
+                    last_x_interval = steppers[0].actual_step_interval;
 
-                if (active_motor_count >= 2) {
-                    // Envia os dados via serial para o caso de dois motores:
-                    // DATA,<x_reading>,<y_reading>,<motor_0_dir>,<motor_1_dir>,<motor_0_speed>,<motor_1_speed>
-                    printf("DATA,%u,%u,%d,%d,%.1f,%.1f\n",
-                           x_reading, y_reading,
-                           steppers[0].dir, steppers[1].dir,
-                           steppers[0].actual_step_interval, steppers[1].actual_step_interval);
-                } else {
-                    // Envia os dados via serial para o caso de um motores:
-                    // DATA,<x_reading>,<y_reading>,<motor_0_dir>,<motor_0_speed>
-                    printf("DATA,%u,%u,%d,0,%.1f,0.0\n",
-                           x_reading, y_reading,
-                           steppers[0].dir,
-                           steppers[0].actual_step_interval);
-                }
-
-                last_x_reading = x_reading;
-                last_y_reading = y_reading;
-                last_x_interval = steppers[0].actual_step_interval;
-                if (active_motor_count >= 2) {
-                    last_y_interval = steppers[1].actual_step_interval;
-                }
+                    if (active_motor_count >= 2) {
+                        last_y_interval = steppers[1].actual_step_interval;
+                    }
             }
-        } else {
-            // In command mode, send minimal data or status
-            printf("DATA,0,0,0,0,0.0,0.0\n"); // Or comment this out if no data needed
         }
 
         // Envia atualizações de estado do sistema
@@ -302,6 +276,24 @@ int main (void) {
     }
 
     return 0;
+}
+
+void process_uart_input(void) {
+    while (uart_is_readable(UART_ID)) {
+        int c = uart_getc(UART_ID);
+        if (c == '\r' || c == '\n') {
+            if (command_buffer_pos > 0) {
+                command_buffer[command_buffer_pos] = '\0';
+                command_ready = true;
+                command_buffer_pos = 0;
+            }
+        } else if (c >= 32 && c <= 128) {
+            if (command_buffer_pos < COMMAND_BUFFER_SIZE - 1) {
+                command_buffer[command_buffer_pos++] = (char)c;
+            }
+        }
+    }
+
 }
 
 // Callback para computar a largura do pulso enviado para o pino STEP do driver do motor
@@ -328,6 +320,7 @@ int64_t alarm_irq_handler(alarm_id_t id, void *user_data) {
 
             // Caso o motor esteja em modo HOMING
             if (motor->homing_mode) {
+
                 // Verifica o estado da chave de fim de curso
                 if (read_limit_switch(motor)) {
                     motor->limit_switch_triggered = true;
@@ -509,9 +502,12 @@ void move_to_position(stepper_motor_t *motor, int32_t target, bool wait) {
 
 // Realiza o HOMING de um motor
 bool home_single_motor(stepper_motor_t *motor, int motor_id) {
+    char rbuffer[256];
+
     // Caso o motor já se encontre no fim do eixo (x ou y)
     if (read_limit_switch(motor)) {
-        printf("ACK,Motor %d ja esta no fim de curso - realizando retorno \n", motor_id);
+        snprintf(rbuffer, 256, "ACK,Motor %d ja esta no fim de curso - realizando retorno \n", motor_id);
+        uart_puts(UART_ID, rbuffer);
 
         // Define os paramêtros de velocidade (velocidade inicial, velocidade final e largura de pulso)
         motor->initial_step_interval = HOMING_SPEED_SLOW;
@@ -532,8 +528,10 @@ bool home_single_motor(stepper_motor_t *motor, int motor_id) {
         sleep_ms(100);
     }
 
+    memset(rbuffer, 0, sizeof(rbuffer));
     // Parte 1 -> Aproxima até a chave de fim de curso ativar
-    printf("ACK,Motor %d: Fase 1 - aproximacao rapida\n", motor_id);
+    snprintf(rbuffer, 256, "ACK,Motor %d: Fase 1 - aproximacao rapida\n", motor_id);
+    uart_puts(UART_ID, rbuffer);
 
     motor->homing_mode = true;
     motor->limit_switch_triggered = false;
@@ -546,27 +544,35 @@ bool home_single_motor(stepper_motor_t *motor, int motor_id) {
 
     start_motor_continuous(motor);
 
+    memset(rbuffer, 0, sizeof(rbuffer));
     // Espera o motor chegar na chave (máximo de 50 segundos)
     uint32_t start_time = to_ms_since_boot(get_absolute_time());
     while (!motor->limit_switch_triggered && motor->alarm_active) {
         if (to_ms_since_boot(get_absolute_time()) - start_time > 50000) {
             stop_motor(motor);
-            printf("ERROR,Timeout no homing do motor %d - limit switch nao encontrado\n", motor_id);
+            snprintf(rbuffer, 256, "ERROR,Timeout no homing do motor %d - limit switch nao encontrado\n", motor_id);
+            uart_puts(UART_ID, rbuffer);
+
             return false;
         }
         sleep_ms(1);
     }
 
+    memset(rbuffer, 0, sizeof(rbuffer));
     if (!motor->limit_switch_triggered) {
-        printf("ERROR,Motor %d nao atingiu o limit switch\n", motor_id);
+        snprintf(rbuffer, 256, "ERROR,Motor %d nao atingiu o limit switch\n", motor_id);
+        uart_puts(UART_ID, rbuffer);
         return false;
     }
 
-    printf("ACK,Motor %d: Limit switch atingido\n", motor_id);
+    snprintf(rbuffer, 256, "ACK,Motor %d: Limit switch atingido\n", motor_id);
+    uart_puts(UART_ID, rbuffer);
     sleep_ms(100);
 
+    memset(rbuffer, 0, sizeof(rbuffer));
     // Parte 2 -> Recua da chave
-    printf("ACK,Motor %d: Fase 2 - recuo do limit switch\n", motor_id);
+    snprintf(rbuffer, 256, "ACK,Motor %d: Fase 2 - recuo do limit switch\n", motor_id);
+    uart_puts(UART_ID, rbuffer);
 
     motor->homing_mode = false;
     motor->limit_switch_triggered = false;
@@ -585,28 +591,28 @@ bool home_single_motor(stepper_motor_t *motor, int motor_id) {
     sleep_ms(100);
 
     // Parte -> Aproxima da chave de forma lenta
-    printf("ACK,Motor %d: Fase 3 - aproximacao final lenta\n", motor_id);
+    // printf("ACK,Motor %d: Fase 3 - aproximacao final lenta\n", motor_id);
 
-    motor->homing_mode = true;
-    motor->limit_switch_triggered = false;
-    motor->initial_step_interval = HOMING_SPEED_SLOW;
-    motor->max_speed = HOMING_SPEED_SLOW;
-    motor->actual_step_interval = HOMING_SPEED_SLOW;
+    // motor->homing_mode = true;
+    // motor->limit_switch_triggered = false;
+    // motor->initial_step_interval = HOMING_SPEED_SLOW;
+    // motor->max_speed = HOMING_SPEED_SLOW;
+    // motor->actual_step_interval = HOMING_SPEED_SLOW;
 
-    motor->dir = -1;
-    gpio_put(motor->dir_pin, 1);
+    // motor->dir = -1;
+    // gpio_put(motor->dir_pin, 1);
 
-    start_motor_continuous(motor);
+    // start_motor_continuous(motor);
 
-    start_time = to_ms_since_boot(get_absolute_time());
-    while (!motor->limit_switch_triggered && motor->alarm_active) {
-        if (to_ms_since_boot(get_absolute_time()) - start_time > 10000) {
-            stop_motor(motor);
-            printf("ERROR,Timeout na aproximacao final do motor %d\n", motor_id);
-            return false;
-        }
-        sleep_ms(1);
-    }
+    // start_time = to_ms_since_boot(get_absolute_time());
+    // while (!motor->limit_switch_triggered && motor->alarm_active) {
+    //     if (to_ms_since_boot(get_absolute_time()) - start_time > 10000) {
+    //         stop_motor(motor);
+    //         printf("ERROR,Timeout na aproximacao final do motor %d\n", motor_id);
+    //         return false;
+    //     }
+    //     sleep_ms(1);
+    // }
 
     // Define a posição atual como zero
     motor->step_position = 0;
@@ -615,10 +621,13 @@ bool home_single_motor(stepper_motor_t *motor, int motor_id) {
 
     // Reseta os parâmetros para os valores normais
     motor->initial_step_interval = 6200.0f;
-    motor->max_speed = 1000;
+    motor->max_speed = 700;
     motor->actual_step_interval = motor->initial_step_interval;
 
-    printf("ACK,Motor %d: Posicao home definida\n", motor_id);
+    memset(rbuffer, 0, sizeof(rbuffer));
+    snprintf(rbuffer, 256, "ACK,Motor %d: Posicao home definida\n", motor_id);
+    uart_puts(UART_ID, rbuffer);
+
     send_position_update();
 
     return true;
@@ -627,13 +636,20 @@ bool home_single_motor(stepper_motor_t *motor, int motor_id) {
 // Realiza o HOMING de todos os motores
 bool home_all_motors(void) {
     bool all_success = true;
+    char rbuffer[256];
 
     // Executa o processo de homing (definição do ponto zero) para cada motor
     for (uint i = 0; i < active_motor_count && i < 3; i++) {
-        printf("ACK,Iniciando homing do motor %d\n", i);
+        memset(rbuffer, 0, sizeof(rbuffer));
+        snprintf(rbuffer, 256, "ACK,Iniciando homing do motor %d\n", i);
+        uart_puts(UART_ID, rbuffer);
+
         if (!home_single_motor(&steppers[i], i)) {
             all_success = false;
-            printf("ERROR,Falha no homing do motor %d\n", i);
+
+            memset(rbuffer, 0, sizeof(rbuffer));
+            snprintf(rbuffer, 256, "ERROR,Falha no homing do motor %d\n", i);
+            uart_puts(UART_ID, rbuffer);
         }
 
         sleep_ms(500);
@@ -644,13 +660,29 @@ bool home_all_motors(void) {
 
 // Envia o status do processo de HOMING dos motores
 void send_homing_status(void) {
-    printf("HOMING_STATUS");
+    char rbuffer[256];
+    int pos = 0;
+
+    memset(rbuffer, 0, sizeof(rbuffer));
+    pos += snprintf(rbuffer + pos, sizeof(rbuffer) - pos, "HOMING_STATUS");
+
     for (uint i = 0; i < active_motor_count && i < 3; i++) {
         stepper_motor_t *motor = &steppers[i];
         bool limit_state = read_limit_switch(motor);
-        printf(",%d,%d", motor->is_homed ? 1 : 0, limit_state ? 1 : 0);
+
+        pos += snprintf(rbuffer + pos, sizeof(rbuffer) - pos, ",%d,%d",
+                        motor->is_homed ? 1 : 0,
+                        limit_state ? 1 : 0);
+
+        if (pos >= sizeof(rbuffer)) {
+            pos = sizeof(rbuffer) - 1;
+            break;
+        }
     }
-    printf("\n");
+
+    snprintf(rbuffer + pos, sizeof(rbuffer) - pos, "\n");
+
+    uart_puts(UART_ID, rbuffer);
 }
 
 // Inicia o motor em modo contínuo (usado para joystick)
@@ -738,45 +770,31 @@ void control_motor_from_joystick(stepper_motor_t *motor, uint16_t reading, uint1
 
 }
 
-// Realiza o processamento dos dados vindos via serial
-void process_serial_input(void) {
-    int c = getchar_timeout_us(0); // Define uma leitura não bloqueante
-
-    if (c != PICO_ERROR_TIMEOUT) {
-        if (c == '\n' || c == '\r') {
-            if (command_buffer_pos > 0) {
-                command_buffer[command_buffer_pos] = '\0';
-                command_ready = true;
-            }
-        } else if (c >= 32 && c <= 126) {
-            if (command_buffer_pos < COMMAND_BUFFER_SIZE - 1) {
-                command_buffer[command_buffer_pos++] = (char)c;
-            }
-        }
-    }
-}
-
 // Direciona para as funções de acordo com o comando enviado via serial
 void handle_command(const char* command) {
-    printf("COMANDO RECEBIDO: %s\n", command);
+    char rbuffer[256];
+    // snprintf(buffer, "");
 
     if (strncmp(command, "MOVE,", 5) == 0) {
         if (current_state != STATE_COMMAND) {
-            printf("ERROR,Nao pode mover no modo joystick\n");
+            sprintf(rbuffer, "ERROR,Nao pode mover no modo joystick\n");
+            uart_puts(UART_ID, rbuffer);
             return;
         }
         parse_move_command(command + 5);
     }
     else if (strncmp(command, "SPEED,", 6) == 0) {
         if (current_state != STATE_COMMAND) {
-            printf("ERROR,Nao pode definir velocidade no modo joystick\n");
+            sprintf(rbuffer, "ERROR,Nao pode definir velocidade no modo joystick\n");
+            uart_puts(UART_ID, rbuffer);
             return;
         }
         parse_speed_command(command + 6);
     }
     else if (strcmp(command, "STOP") == 0) {
         stop_all_motors();
-        printf("ACK,Parada de emergencia executada\n");
+        sprintf(rbuffer, "ACK,Parada de emergencia executada\n");
+        uart_puts(UART_ID, rbuffer);
     }
     else if (strncmp(command, "MODE,", 5) == 0) {
         parse_mode_command(command + 5);
@@ -786,14 +804,16 @@ void handle_command(const char* command) {
     }
     else if (strncmp(command, "MOVETO,", 7) == 0) {
         if (current_state != STATE_COMMAND) {
-            printf("ERROR,Nao pode posicionar no modo joystick\n");
+            sprintf(rbuffer, "ERROR,Nao pode posicionar no modo joystick\n");
+            uart_puts(UART_ID, rbuffer);
             return;
         }
         parse_moveto_command(command + 7);
     }
     else if (strncmp(command, "HOME", 4) == 0) {
         if (current_state == STATE_JOYSTICK) {
-            printf("ERROR,Nao pode executar homing no modo joystick\n");
+            sprintf(rbuffer, "ERROR,Nao pode executar homing no modo joystick\n");
+            uart_puts(UART_ID, rbuffer);
             return;
         }
         if (strlen(command) > 4 && command[4] == ',') {
@@ -807,7 +827,8 @@ void handle_command(const char* command) {
     }
     else if (strncmp(command, "RECALLPOS,", 10) == 0) {
         if (current_state != STATE_COMMAND) {
-            printf("ERROR,Nao pode recuperar posicao no modo joystick\n");
+            sprintf(rbuffer, "ERROR,Nao pode recuperar posicao no modo joystick\n");
+            uart_puts(UART_ID, rbuffer);
             return;
         }
         parse_recallpos_command(command + 10);
@@ -819,21 +840,24 @@ void handle_command(const char* command) {
         bool is_empty = saved_positions_is_empty();
 
         if (is_empty) {
-            printf("ERROR,nenhuma posicao foi encontrada\n");
+            sprintf(rbuffer, "ERROR,nenhuma posicao foi encontrada\n");
+            uart_puts(UART_ID, rbuffer);
         } else {
             parse_testallpos_command();
         }
     }
     else if (strncmp(command, "RECALLSTRING,", 13) == 0) {
         if (current_state != STATE_COMMAND) {
-            printf("ERROR,Nao pode executar RECALLSTRING no modo joystick\n");
+            sprintf(rbuffer, "ERROR,Nao pode executar RECALLSTRING no modo joystick\n");
+            uart_puts(UART_ID, rbuffer);
             return;
         }
         parse_recallstring_command(command + 13);
     }
     else if (strncmp(command, "SETZERO", 7) == 0) {
         if (current_state != STATE_COMMAND) {
-            printf("ERROR,Nao pode definir origem no modo joystick\n");
+            sprintf(rbuffer, "ERROR,Nao pode definir origem no modo joystick\n");
+            uart_puts(UART_ID, rbuffer);
             return;
         }
         if (strlen(command) > 7 && command[7] == ',') {
@@ -844,20 +868,32 @@ void handle_command(const char* command) {
     }
     else if (strcmp(command, "STATUS") == 0) {
         // Envia o estado de todos os motores ativos
-        printf("STATUS");
-        for (uint i = 0; i < active_motor_count && i < 3; i++) {
-            stepper_motor_t *motor = &steppers[i];
-            printf(",%d,%d,%d,%.1f",
-                   (int)motor->step_position,
-                   motor->alarm_active ? 1 : 0,
-                   motor->dir,
-                   motor->actual_step_interval);
-        }
-        printf("\n");
+        stepper_motor_t *motor0 = &steppers[0];
+        stepper_motor_t *motor1 = &steppers[1];
+        stepper_motor_t *motor2 = &steppers[2];
+
+        snprintf(rbuffer, 256,
+            "STATUS,%d,%d,%d,%.1f,%d,%d,%d,%.1f,%d,%d,%d,%.1f\n",
+            (int)motor0->step_position,
+            motor0->alarm_active ? 1 : 0,
+            motor0->dir,
+            motor0->actual_step_interval,
+            (int)motor1->step_position,
+            motor1->alarm_active ? 1 : 0,
+            motor1->dir,
+            motor1->actual_step_interval,
+            (int)motor2->step_position,
+            motor2->alarm_active ? 1 : 0,
+            motor2->dir,
+            motor2->actual_step_interval
+        );
+        uart_puts(UART_ID, rbuffer);
+
         send_state_update();
     }
     else {
-        printf("ERROR,Comando desconhecido: %s\n", command);
+        snprintf(rbuffer, 256, "ERROR,Comando desconhecido: %s\n", command);
+        uart_puts(UART_ID, rbuffer);
     }
 }
 
@@ -1098,16 +1134,25 @@ void parse_setzero_command(const char* params) {
 
 // Envia a posição atual dos motores via serial
 void send_position_update(void) {
-    printf("POSITION");
+    char rbuffer[256];
+    uint pos = 0;
+
+    pos += snprintf(rbuffer + pos, sizeof(rbuffer) - pos, "POSITION");
     for (uint i = 0; i < active_motor_count && i < 3; i++) {
-        printf(",%d", (int)steppers[i].step_position);
+        pos += snprintf(rbuffer + pos, sizeof(rbuffer) - pos, ",%d", (int)steppers[i].step_position);
+
+        if (pos >= sizeof(rbuffer)) break;
     }
-    printf("\n");
+
+    snprintf(rbuffer + pos, sizeof(rbuffer) - pos, "\n");
+    uart_puts(UART_ID, rbuffer);
 }
 
 // Envia o estado atual do sistema via serial (JOYSTICK, COMMAND, HOMING)
 void send_state_update(void) {
     const char* state_str;
+    char rbuffer[256];
+
     if (current_state == STATE_JOYSTICK) {
         state_str = "JOYSTICK";
     } else if (current_state == STATE_COMMAND) {
@@ -1115,7 +1160,9 @@ void send_state_update(void) {
     } else {
         state_str = "HOMING";
     }
-    printf("STATE,%s,%d\n", state_str, active_motor_count);
+
+    snprintf(rbuffer, 256, "STATE,%s,%d\n", state_str, active_motor_count);
+    uart_puts(UART_ID, rbuffer);
 }
 
 // Para o movimento de todos os motores
@@ -1151,6 +1198,7 @@ int find_saved_position_index(char character) {
 
 // Salva a posição atual do atuador e associa a uma letra: SAVEPOS,<character>,<x_pos>,<y_pos>
 void parse_savepos_command(const char* params) {
+    char rbuffer[256];
     char* param_copy = malloc(strlen(params) + 1);
     strcpy(param_copy, params);
 
@@ -1159,7 +1207,8 @@ void parse_savepos_command(const char* params) {
     char* y_param = strtok(NULL, ",");
 
     if (!char_param || !x_param || !y_param) {
-        printf("ERROR,Parametros insuficientes para SAVEPOS. Formato: character,x_pos,y_pos\n");
+        sprintf(rbuffer, "ERROR,Parametros insuficientes para SAVEPOS. Formato: character,x_pos,y_pos\n");
+        uart_puts(UART_ID, rbuffer);
         free(param_copy);
         return;
     }
@@ -1171,7 +1220,9 @@ void parse_savepos_command(const char* params) {
     // Faz a validação do caractere
     if (!((character >= 'a' && character <= 'z') ||
           (character >= '0' && character <= '9'))) {
-        printf("ERROR,Caractere invalido: %c (use a-z ou 0-9)\n", character);
+        memset(rbuffer, 0, sizeof(rbuffer));
+        snprintf(rbuffer, 256, "ERROR,Caractere invalido: %c (use a-z ou 0-9)\n", character);
+        uart_puts(UART_ID, rbuffer);
         free(param_copy);
         return;
     }
@@ -1188,7 +1239,9 @@ void parse_savepos_command(const char* params) {
     }
 
     if (index == -1) {
-        printf("ERROR,Memoria de posicoes cheia (maximo %d posicoes)\n", MAX_SAVED_POSITIONS);
+        memset(rbuffer, 0, sizeof(rbuffer));
+        snprintf(rbuffer, 256, "ERROR,Memoria de posicoes cheia (maximo %d posicoes)\n", MAX_SAVED_POSITIONS);
+        uart_puts(UART_ID, rbuffer);
         free(param_copy);
         return;
     }
@@ -1199,7 +1252,9 @@ void parse_savepos_command(const char* params) {
     saved_positions[index].y_position = y_pos;
     saved_positions[index].is_used = true;
 
-    printf("ACK,Posicao '%c' salva: X=%d, Y=%d\n", character, x_pos, y_pos);
+    memset(rbuffer, 0, sizeof(rbuffer));
+    snprintf(rbuffer, 256, "ACK,Posicao '%c' salva: X=%d, Y=%d\n", character, x_pos, y_pos);
+    uart_puts(UART_ID, rbuffer);
     send_saved_positions_update();
 
     free(param_copy);
@@ -1207,8 +1262,11 @@ void parse_savepos_command(const char* params) {
 
 // Recupera a posição da letra especificada: RECALLPOS,<character>
 void parse_recallpos_command(const char* params) {
+    char rbuffer[256];
+
     if (strlen(params) != 1) {
-        printf("ERROR,RECALLPOS requer exatamente um caractere\n");
+        sprintf(rbuffer, "ERROR,RECALLPOS requer exatamente um caractere\n");
+        uart_puts(UART_ID, rbuffer);
         return;
     }
 
@@ -1218,7 +1276,9 @@ void parse_recallpos_command(const char* params) {
     int index = find_saved_position_index(character);
 
     if (index == -1) {
-        printf("ERROR,Posicao '%c' nao encontrada\n", character);
+        memset(rbuffer, 0, sizeof(rbuffer));
+        snprintf(rbuffer, 256, "ERROR,Posicao '%c' nao encontrada\n", character);
+        uart_puts(UART_ID, rbuffer);
         return;
     }
 
@@ -1226,8 +1286,10 @@ void parse_recallpos_command(const char* params) {
     int32_t target_x = saved_positions[index].x_position;
     int32_t target_y = saved_positions[index].y_position;
 
-    printf("ACK,Movendo para posicao salva '%c': X=%d, Y=%d\n",
+    memset(rbuffer, 0, sizeof(rbuffer));
+    snprintf(rbuffer, 256, "ACK,Movendo para posicao salva '%c': X=%d, Y=%d\n",
            character, target_x, target_y);
+    uart_puts(UART_ID, rbuffer);
 
     // Para todos os motores, caso estejam se movimentando
     stop_all_motors();
@@ -1272,20 +1334,6 @@ void parse_recallpos_command(const char* params) {
         }
     }
 
-     // move o motor do eixo z
-    stepper_motor_t *motor2 = &steppers[2];
-    move_n_steps(motor2, 2500);
-    while (!motor2->movement_done && motor2->alarm_active) {
-        tight_loop_contents();
-    }
-    sleep_ms(5);
-    move_n_steps(motor2, -2500);
-    while (!motor2->movement_done && motor2->alarm_active) {
-        tight_loop_contents();
-    }
-    // Delay opcional entre letras
-    sleep_ms(300);
-
     // Espera a tecla ser pressionada
     // char caracter = uart_getc(uart1);
 
@@ -1294,16 +1342,23 @@ void parse_recallpos_command(const char* params) {
     // }
 
     // Envia a atualização via serial sobre a posição dos motores
-    printf("ACK,Finalizaou movimento\n");
-    // printf("ACK,valor recebido = %c\n", caracter);
+
+    memset(rbuffer, 0, sizeof(rbuffer));
+    sprintf(rbuffer, "ACK,Finalizaou movimento\n");
+    uart_puts(UART_ID, rbuffer);
+
     send_position_update();
 }
 
 // Recupera os caracteres que compõem a string: RECALLSTRING,<texto>
 void parse_recallstring_command(const char* params) {
+    char rbuffer[256];
+
     // Verifica se uma string foi passada, se não, retorna mensagem de erro
     if (!params || strlen(params) == 0) {
-        printf("ERROR,RECALLSTRING requer uma string nao vazia\n");
+        memset(rbuffer, 0, sizeof(rbuffer));
+        sprintf(rbuffer, "ERROR,RECALLSTRING requer uma string nao vazia\n");
+        uart_puts(UART_ID, rbuffer);
         return;
     }
 
@@ -1316,7 +1371,9 @@ void parse_recallstring_command(const char* params) {
 
         // Se o caractere não for encontrado no array, então pula a iteração
         if (index == -1) {
-            printf("ERROR,Posicao '%c' nao encontrada (pulando)\n", character);
+            memset(rbuffer, 0, sizeof(rbuffer));
+            // sprintf(rbuffer, "ERROR,Posicao '%c' nao encontrada (pulando)\n", character);
+            uart_puts(UART_ID, rbuffer);
             continue;
         }
 
@@ -1325,8 +1382,10 @@ void parse_recallstring_command(const char* params) {
         int32_t target_y = saved_positions[index].y_position;
 
         // Envia mensagem indicando: movimento iniciado
-        printf("ACK,Palavra: '%s' --- Movendo para '%c': X=%d, Y=%d\n",
+        memset(rbuffer, 0, sizeof(rbuffer));
+        sprintf(rbuffer, "ACK,Palavra: '%s' --- Movendo para '%c': X=%d, Y=%d\n",
                params, character, target_x, target_y);
+        uart_puts(UART_ID, rbuffer);
 
         // Para todos os motores antes de mover
         stop_all_motors();
@@ -1336,8 +1395,6 @@ void parse_recallstring_command(const char* params) {
         stepper_motor_t *motor0 = &steppers[0];
         int32_t steps_x = target_x - (int32_t)motor0->step_position;
         if (steps_x != 0) {
-            motor0->initial_step_interval  = 5000.0f;
-            motor0->max_speed              = 400;
             move_n_steps(motor0, steps_x);
         }
 
@@ -1346,8 +1403,6 @@ void parse_recallstring_command(const char* params) {
             stepper_motor_t *motor1 = &steppers[1];
             int32_t steps_y = target_y - (int32_t)motor1->step_position;
             if (steps_y != 0) {
-                motor0->initial_step_interval  = 5000.0f;
-                motor0->max_speed              = 400;
                 move_n_steps(motor1, steps_y);
             }
         }
@@ -1373,38 +1428,39 @@ void parse_recallstring_command(const char* params) {
         // Atualiza interface
         send_position_update();
 
-        // move o motor do eixo z
-        stepper_motor_t *motor2 = &steppers[2];
-        move_n_steps(motor2, 2600);
-        while (!motor2->movement_done) {
-            tight_loop_contents();
-        }
-        sleep_ms(2);
-        move_n_steps(motor2, -2600);
-        while (!motor2->movement_done) {
-            tight_loop_contents();
-        }
         // Delay opcional entre letras
         sleep_ms(300);
     }
-    
-    printf("ACK,Palavra '%s' foi percorrida com sucesso\n", params);
+
+    memset(rbuffer, 0, sizeof(rbuffer));
+    sprintf(rbuffer, "ACK,Palavra '%s' foi percorrida com sucesso\n", params);
+    uart_puts(UART_ID, rbuffer);
 }
 
 // Envia as posições que estão salvas no array para a GUI
 void send_saved_positions_update(void) {
-    printf("SAVED_POSITIONS");
+    char rbuffer[256];
+    int pos = 0;
+
+    pos += snprintf(rbuffer + pos, sizeof(rbuffer) - pos, "SAVED_POSITIONS");
 
     for (int i = 0; i < MAX_SAVED_POSITIONS; i++) {
         if (saved_positions[i].is_used) {
-            printf(",%c,%d,%d",
-                   saved_positions[i].character,
-                   saved_positions[i].x_position,
-                   saved_positions[i].y_position);
+            pos += snprintf(rbuffer + pos, sizeof(rbuffer) - pos, ",%c,%d,%d",
+                            saved_positions[i].character,
+                            saved_positions[i].x_position,
+                            saved_positions[i].y_position);
+
+            if (pos >= sizeof(rbuffer)) {
+                pos = sizeof(rbuffer) - 1;
+                break;
+            }
         }
     }
 
-    printf("\n");
+    snprintf(rbuffer + pos, sizeof(rbuffer) - pos, "\n");
+
+    uart_puts(UART_ID, rbuffer);
 }
 
 // Limpa o array de posições: CLEARPOS
@@ -1424,12 +1480,16 @@ bool saved_positions_is_empty(void) {
 }
 
 void parse_testallpos_command(void) {
+    char rbuffer[256];
+
     for (int i = 0; i < MAX_SAVED_POSITIONS; i++) {
         if (saved_positions[i].is_used) {
-            printf("ACK,movendo o atuador para a letra %c (%d,%d)\n",
+            memset(rbuffer, 0, sizeof(rbuffer));
+            sprintf(rbuffer, "ACK,movendo o atuador para a letra %c (%d,%d)\n",
                    saved_positions[i].character,
                    saved_positions[i].x_position,
                    saved_positions[i].y_position);
+            uart_puts(UART_ID, rbuffer);
 
             // Define a posição x e y alvo para os motores
             int32_t target_x = saved_positions[i].x_position;
@@ -1480,11 +1540,14 @@ void parse_testallpos_command(void) {
         sleep_ms(500);
     }
 
-    printf("ACK,deslocamento por todos os pontos foi executado\n");
+    memset(rbuffer, 0, sizeof(rbuffer));
+    sprintf(rbuffer, "ACK,deslocamento por todos os pontos foi executado\n");
+    uart_puts(UART_ID, rbuffer);
 }
 
 // Realiza o homing para os motores: HOME,<motor_id> ou somente HOME para todos os motores
 void parse_home_command(const char* params) {
+    char rbuffer[256];
     stop_all_motors();
 
     current_state = STATE_HOMING;
@@ -1494,24 +1557,39 @@ void parse_home_command(const char* params) {
         // HOME,<motor_id> - um motor em específico
         int motor_id = atoi(params);
         if (motor_id >= 0 && motor_id < (int)active_motor_count && motor_id < 3) {
-            printf("ACK,Iniciando homing do motor %d\n", motor_id);
+            memset(rbuffer, 0, sizeof(rbuffer));
+            sprintf(rbuffer, "ACK,Iniciando homing do motor %d\n", motor_id);
+            uart_puts(UART_ID, rbuffer);
+            uart_puts(UART_ID, rbuffer);
 
             if (home_single_motor(&steppers[motor_id], motor_id)) {
-                printf("ACK,Homing do motor %d concluido\n", motor_id);
+                memset(rbuffer, 0, sizeof(rbuffer));
+                sprintf(rbuffer, "ACK,Homing do motor %d concluido\n", motor_id);
+                uart_puts(UART_ID, rbuffer);
             } else {
-                printf("ERROR,Falha no homing do motor %d\n", motor_id);
+                memset(rbuffer, 0, sizeof(rbuffer));
+                sprintf(rbuffer, "ERROR,Falha no homing do motor %d\n", motor_id);
+                uart_puts(UART_ID, rbuffer);
             }
         } else {
-            printf("ERROR,ID de motor invalido para homing: %d\n", motor_id);
+            memset(rbuffer, 0, sizeof(rbuffer));
+            sprintf(rbuffer, "ERROR,ID de motor invalido para homing: %d\n", motor_id);
+            uart_puts(UART_ID, rbuffer);
         }
     } else {
         // HOME - todos os motores
-        printf("ACK,Iniciando homing de todos os motores\n");
+        memset(rbuffer, 0, sizeof(rbuffer));
+        sprintf(rbuffer, "ACK,Iniciando homing de todos os motores\n");
+        uart_puts(UART_ID, rbuffer);
 
         if (home_all_motors()) {
-            printf("ACK,Homing de todos os motores concluido\n");
+            memset(rbuffer, 0, sizeof(rbuffer));
+            sprintf(rbuffer, "ACK,Homing de todos os motores concluido\n");
+            uart_puts(UART_ID, rbuffer);
         } else {
-            printf("ERROR,Falha no homing de alguns motores\n");
+            memset(rbuffer, 0, sizeof(rbuffer));
+            sprintf(rbuffer, "ERROR,Falha no homing de alguns motores\n");
+            uart_puts(UART_ID, rbuffer);
         }
     }
 

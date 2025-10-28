@@ -10,8 +10,8 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
 
-#define STEP_PIN  1  // pino STEP
-#define DIR_PIN   0  // pino DIR
+#define STEP_PIN  17  // pino STEP
+#define DIR_PIN   16  // pino DIR
 #define BTN_CONTROL 7 // Inicia/Para movimento
 
 // #define CW 1
@@ -89,24 +89,14 @@ int main() {
     const uint steps_per_rev = SPR * 16; // 1536 passos
     const uint64_t pulse_delay_us = (uint64_t)(((1.0f / 96.0f) / 16.0f / 16.0f) * 1e6f); // 651 us
 
-    mov_state = false;
-
     while(true) {
-        if (mov_state) {
-            mov_process = true;
-
-            for (int x = 0; x < steps_per_rev * 10; x++) {
-                gpio_put(STEP_PIN, 1);
-                sleep_us(pulse_delay_us);
-                gpio_put(STEP_PIN, 0);
-                sleep_us(pulse_delay_us);
-            }
-
-            mov_process = false;
-            mov_state = false;
+        for (int x = 0; x < steps_per_rev; x++) {
+            gpio_put(STEP_PIN, 1);
+            sleep_us(pulse_delay_us);
+            gpio_put(STEP_PIN, 0);
+            sleep_us(pulse_delay_us);
         }
-
-        sleep_ms(60);
+        sleep_ms(5);
     }
 
     return 0;

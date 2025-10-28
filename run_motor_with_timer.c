@@ -2,8 +2,8 @@
 #include "pico/stdlib.h"
 #include "pico/time.h"
 
-#define STEP_PIN  1  // pino STEP
-#define DIR_PIN   0  // pino DIR
+#define STEP_PIN  18  // pino STEP
+#define DIR_PIN   19  // pino DIR
 #define MS1_PIN 13
 #define MS2_PIN 14
 #define MS3_PIN 15
@@ -92,7 +92,7 @@ int main() {
     while (true) {
 
         gpio_put(DIR_PIN, CW);
-        state.steps_remaining = steps_per_rev * 5;
+        state.steps_remaining = steps_per_rev * 10;
 
         // Cria instância do timer para o motor
         add_repeating_timer_us(interval, step_callback, &state, &timer);

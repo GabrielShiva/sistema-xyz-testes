@@ -380,6 +380,7 @@
                         <button class="button warning" id="home-all-btn">Home Todos</button>
                         <button class="button" id="home-x-btn">Home Eixo X</button>
                         <button class="button" id="home-y-btn">Home Eixo Y</button>
+                        <button class="button" id="home-z-btn">Home Eixo Z</button>
                     </div>
                     <div class="input-group" style="margin-top: 10px;">
                         <label class="input-label" style="color: #ff9800;">⚠ O homing moverá os motores até o fim de curso. Verifique se o caminho está livre!</label>
@@ -453,6 +454,13 @@
                                 <input type="number" class="input" id="motor1-position-input" placeholder="Insira a posição" value="0">
                             </div>
                         </div>
+                        <div class="motor-control-group">
+                            <div class="motor-control-header axis-color-y">Motor 2 (Eixo Z)</div>
+                            <div class="input-group">
+                                <label class="input-label">Posição Desejada</label>
+                                <input type="number" class="input" id="motor2-position-input" placeholder="Insira a posição" value="0">
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Movement Control Buttons -->
@@ -467,12 +475,14 @@
                         <button class="button primary" id="move-both-btn">Mover Ambos</button>
                         <button class="button" id="move-motor0-btn">Mover Motor 0</button>
                         <button class="button" id="move-motor1-btn">Mover Motor 1</button>
+                        <button class="button" id="move-motor2-btn">Mover Motor 2</button>
                     </div>
 
                     <div class="quick-actions">
                         <button class="button" id="set-zero-all-btn">Zerar Todos os Motores</button>
                         <button class="button" id="set-zero-motor0-btn">Zerar Motor 0</button>
                         <button class="button" id="set-zero-motor1-btn">Zerar Motor 1</button>
+                        <button class="button" id="set-zero-motor2-btn">Zerar Motor 2</button>
                     </div>
                 </div>
             </div>
@@ -505,6 +515,7 @@
                     <select class="input" id="motor-id-select">
                         <option value="0">Motor 0 (X)</option>
                         <option value="1">Motor 1 (Y)</option>
+                        <option value="2">Motor 2 (Z)</option>
                     </select>
                     <label class="input-label">Passos</label>
                     <input type="number" class="input" id="steps-input" value="100">
@@ -589,14 +600,17 @@
                 document.getElementById('home-all-btn').addEventListener('click', () => this.homeAllMotors());
                 document.getElementById('home-x-btn').addEventListener('click', () => this.homeMotor(0));
                 document.getElementById('home-y-btn').addEventListener('click', () => this.homeMotor(1));
+                document.getElementById('home-z-btn').addEventListener('click', () => this.homeMotor(2));
 
                 // Dual motor position control buttons
                 document.getElementById('move-both-btn').addEventListener('click', () => this.moveBothMotors());
                 document.getElementById('move-motor0-btn').addEventListener('click', () => this.moveMotor(0));
                 document.getElementById('move-motor1-btn').addEventListener('click', () => this.moveMotor(1));
+                document.getElementById('move-motor2-btn').addEventListener('click', () => this.moveMotor(2));
                 document.getElementById('set-zero-all-btn').addEventListener('click', () => this.setZeroAllMotors());
                 document.getElementById('set-zero-motor0-btn').addEventListener('click', () => this.setZeroMotor(0));
                 document.getElementById('set-zero-motor1-btn').addEventListener('click', () => this.setZeroMotor(1));
+                document.getElementById('set-zero-motor2-btn').addEventListener('click', () => this.setZeroMotor(2));
 
                 // Position memory system buttons
                 document.getElementById('save-position-btn').addEventListener('click', () => this.saveCurrentPosition());
@@ -982,7 +996,19 @@
             }
 
             async homeMotor(motorId) {
-                const motorName = motorId === 0 ? 'X-axis' : 'Y-axis';
+                let motorName = '';
+                if (motorId === 0) {
+                    motorName = 'X-axis';
+                }
+
+                if (motorId === 1) {
+                    motorName = 'Y-axis';
+                }
+
+                if (motorId === 2) {
+                    motorName = 'Z-axis';
+                }
+
                 if (confirm(`This will home the ${motorName} motor. Ensure the movement path is clear. Continue?`)) {
                     await this.sendCommand(`HOME,${motorId}`);
                 }
