@@ -80,7 +80,7 @@ typedef struct {
 stepper_motor_t steppers[3] = {
     { .dir_pin = 16, .step_pin = 17, .ms1_pin = 13, .ms2_pin = 14, .ms3_pin = 15, .limit_switch_pin = LIMIT_SWITCH_X_PIN },
     { .dir_pin = 0, .step_pin = 3, .ms1_pin = 13, .ms2_pin = 14, .ms3_pin = 15, .limit_switch_pin = LIMIT_SWITCH_Y_PIN },
-    { .dir_pin = 19, .step_pin = 18, .ms1_pin = 13, .ms2_pin = 14, .ms3_pin = 15, .limit_switch_pin = LIMIT_SWITCH_Z_PIN }
+    { .dir_pin = 19, .step_pin = 20, .ms1_pin = 13, .ms2_pin = 14, .ms3_pin = 15, .limit_switch_pin = LIMIT_SWITCH_Z_PIN }
 };
 
 // Command buffer
@@ -101,8 +101,8 @@ system_state_t current_state = STATE_JOYSTICK;
 uint8_t active_motor_count = 3;
 
 // Homing parameters
-#define HOMING_SPEED_SLOW 200.0f   // Hz - slow speed for final approach
-#define HOMING_SPEED_FAST 500.0f   // Hz - fast speed for initial movement
+#define HOMING_SPEED_SLOW 400.0f   // Hz - slow speed for final approach
+#define HOMING_SPEED_FAST 600.0f   // Hz - fast speed for initial movement
 #define HOMING_BACKOFF_STEPS 130
 
 // Function declarations
@@ -147,11 +147,6 @@ bool home_all_motors(void);
 bool read_limit_switch(stepper_motor_t *motor);
 void init_limit_switches(void);
 
-// PWM interrupt handlers for step counting
-// void pwm_irq_handler_motor0(void);
-// void pwm_irq_handler_motor1(void);
-// void pwm_irq_handler_motor2(void);
-
 // Initialize stepper motor with PWM
 void init_stepper_motor(stepper_motor_t *motor) {
     // Initialize direction pin
@@ -177,8 +172,8 @@ void init_stepper_motor(stepper_motor_t *motor) {
     gpio_put(motor->ms3_pin, 1);
 
     // Initialize motor parameters
-    motor->min_frequency = 300.0f;        // 100 Hz minimum
-    motor->max_frequency = 10000.0f;       // 2000 Hz maximum
+    motor->min_frequency = 200.0f;        // 100 Hz minimum
+    motor->max_frequency = 5000.0f;       // 2000 Hz maximum
     motor->acceleration = 10000.0f;        // 5000 Hz/s^2
     motor->current_frequency = 0.0f;
     motor->target_frequency = 0.0f;
@@ -203,6 +198,7 @@ void init_stepper_motor(stepper_motor_t *motor) {
     pwm_set_irq_enabled(motor->pwm_slice, true);
 }
 
+// Set motor frequency (speed)
 // Set motor frequency (speed)
 void set_motor_frequency(stepper_motor_t *motor, float frequency) {
     if (frequency < 0.1f) {
@@ -229,20 +225,31 @@ void set_motor_frequency(stepper_motor_t *motor, float frequency) {
     // We want 2x the step frequency (for 50% duty cycle square wave)
     float pwm_freq = frequency * 2.0f;
 
-    // Choose divisor to get good resolution
-    uint32_t divisor = 1;
+    // Choose divisor to get good resolution and prevent wrap from being too small
+    uint32_t divisor;
     uint32_t wrap;
 
-    if (pwm_freq < 1000.0f) {
+    if (pwm_freq < 500.0f) {
+        // Very low frequencies: use large divisor
+        divisor = 250;  // 500 kHz PWM clock
+        wrap = (uint32_t)(500000.0f / pwm_freq) - 1;
+    } else if (pwm_freq < 2000.0f) {
+        // Low frequencies
         divisor = 125;  // 1 MHz PWM clock
         wrap = (uint32_t)(1000000.0f / pwm_freq) - 1;
+    } else if (pwm_freq < 10000.0f) {
+        // Medium frequencies
+        divisor = 50;   // 2.5 MHz PWM clock
+        wrap = (uint32_t)(2500000.0f / pwm_freq) - 1;
     } else {
+        // High frequencies
         divisor = 25;   // 5 MHz PWM clock
         wrap = (uint32_t)(5000000.0f / pwm_freq) - 1;
     }
 
+    // Safety limits - ensure wrap is in valid range
     if (wrap > 65535) wrap = 65535;
-    if (wrap < 1) wrap = 1;
+    if (wrap < 10) wrap = 10;  // Minimum wrap value to ensure stable PWM
 
     // Configure PWM
     pwm_set_clkdiv_int_frac(motor->pwm_slice, divisor, 0);
@@ -592,13 +599,13 @@ int main(void) {
     printf("Starting motors...\n");
 
     // Initialize some saved positions (example)
-    saved_positions[0] = (saved_position_t){ .character = 'a', .x_position = 25003, .y_position = 2287, .is_used = true };
-    saved_positions[1] = (saved_position_t){ .character = 'b', .x_position = 1051, .y_position = 1579, .is_used = true };
-    saved_positions[2] = (saved_position_t){ .character = 'c', .x_position = 2818, .y_position = 2109, .is_used = true };
-    saved_positions[3] = (saved_position_t){ .character = 'd', .x_position = 0, .y_position = 2195, .is_used = true };
-    saved_positions[4] = (saved_position_t){ .character = 'e', .x_position = 4147, .y_position = 955, .is_used = true };
-    saved_positions[5] = (saved_position_t){ .character = 'n', .x_position = 14400, .y_position = 670, .is_used = true };
-    saved_positions[6] = (saved_position_t){ .character = 'i', .x_position = 12318, .y_position = 4409, .is_used = true };
+    // saved_positions[0] = (saved_position_t){ .character = 'a', .x_position = 25003, .y_position = 2287, .is_used = true };
+    // saved_positions[1] = (saved_position_t){ .character = 'b', .x_position = 1051, .y_position = 1579, .is_used = true };
+    // saved_positions[2] = (saved_position_t){ .character = 'c', .x_position = 2818, .y_position = 2109, .is_used = true };
+    // saved_positions[3] = (saved_position_t){ .character = 'd', .x_position = 0, .y_position = 2195, .is_used = true };
+    // saved_positions[4] = (saved_position_t){ .character = 'e', .x_position = 4147, .y_position = 955, .is_used = true };
+    // saved_positions[5] = (saved_position_t){ .character = 'n', .x_position = 13914, .y_position = 670, .is_used = true };
+    // saved_positions[6] = (saved_position_t){ .character = 'i', .x_position = 12318, .y_position = 4409, .is_used = true };
 
 
     // Send initial status
@@ -1230,6 +1237,8 @@ void parse_recallpos_command(const char* params) {
         }
     }
 
+    sleep_ms(10);
+
      // move o motor do eixo z
     stepper_motor_t *motor2 = &steppers[2];
     move_n_steps(motor2, 2500);
@@ -1307,6 +1316,8 @@ void parse_recallstring_command(const char* params) {
                 move_n_steps(motor1, steps_y);
             }
         }
+
+        sleep_ms(10);
 
         // Espera concluir o movimento
         bool all_done = false;

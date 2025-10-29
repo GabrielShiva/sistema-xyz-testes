@@ -10,17 +10,12 @@
 #include "hardware/timer.h"
 #include "hardware/adc.h"
 
-// #define UART_TX 20
-// #define UART_RX 21
-
 #define LED_PIN        25
 #define JOYSTICK_X_PIN 26
 #define JOYSTICK_Y_PIN 28
 #define LIMIT_SWITCH_X_PIN 9
 #define LIMIT_SWITCH_Y_PIN 8
 #define LIMIT_SWITCH_Z_PIN 10
-// #define LIMIT_SWITCH_X_PIN 10
-// #define LIMIT_SWITCH_Y_PIN 11
 
 // Define os estados do sistema
 typedef enum {
@@ -77,8 +72,8 @@ typedef struct {
 // Declara os motores de passo
 stepper_motor_t steppers[3] = {
     { .dir_pin = 16, .step_pin = 17, .ms1_pin = 13, .ms2_pin = 14, .ms3_pin = 15, .limit_switch_pin = LIMIT_SWITCH_X_PIN },
-    { .dir_pin = 0, .step_pin = 1, .ms1_pin = 13, .ms2_pin = 14, .ms3_pin = 15, .limit_switch_pin = LIMIT_SWITCH_Y_PIN },
-    { .dir_pin = 19, .step_pin = 18, .ms1_pin = 13, .ms2_pin = 14, .ms3_pin = 15, .limit_switch_pin = LIMIT_SWITCH_Z_PIN }
+    { .dir_pin = 0, .step_pin = 3, .ms1_pin = 13, .ms2_pin = 14, .ms3_pin = 15, .limit_switch_pin = LIMIT_SWITCH_Y_PIN },
+    { .dir_pin = 19, .step_pin = 20, .ms1_pin = 13, .ms2_pin = 14, .ms3_pin = 15, .limit_switch_pin = LIMIT_SWITCH_Z_PIN }
 };
 
 // Define variáveis realacionadas aos comandos enviados da interface
@@ -100,7 +95,7 @@ system_state_t current_state = STATE_JOYSTICK;
 uint8_t active_motor_count = 3; // define o numero de motores ligados
 
 // Define os parâmetros de homing
-#define HOMING_SPEED_SLOW 1000  // μs - slow speed for final approach
+#define HOMING_SPEED_SLOW 2000  // μs - slow speed for final approach
 #define HOMING_SPEED_FAST 1000  // μs - fast speed for initial movement
 #define HOMING_BACKOFF_STEPS 130 // steps to back off from limit switch
 
@@ -304,6 +299,72 @@ int main (void) {
     return 0;
 }
 
+void execute_z_press_fixed(stepper_motor_t *motor_z) {
+    // Ensure motor is stopped before starting
+    if (motor_z->alarm_active) {
+        stop_motor(motor_z);
+        sleep_ms(10);
+    }
+
+    // Reset state
+    motor_z->movement_done = false;
+
+    // Press down
+    move_n_steps(motor_z, 2500);
+
+    // Proper wait with timeout
+    uint32_t start_time = to_ms_since_boot(get_absolute_time());
+    while (!motor_z->movement_done && motor_z->alarm_active) {
+        // Check for timeout (5 seconds)
+        if (to_ms_since_boot(get_absolute_time()) - start_time > 5000) {
+            printf("ERROR,Timeout no movimento Z para baixo\n");
+            stop_motor(motor_z);
+            return;
+        }
+        sleep_ms(1);
+    }
+
+    // Verify movement completed
+    if (!motor_z->movement_done) {
+        printf("ERROR,Motor Z nao completou movimento para baixo\n");
+        stop_motor(motor_z);
+        return;
+    }
+
+    sleep_ms(10);  // Short delay at bottom
+
+    // Retract
+    motor_z->movement_done = false;
+    move_n_steps(motor_z, -2500);
+
+    start_time = to_ms_since_boot(get_absolute_time());
+    while (!motor_z->movement_done && motor_z->alarm_active) {
+        if (to_ms_since_boot(get_absolute_time()) - start_time > 5000) {
+            printf("ERROR,Timeout no movimento Z para cima\n");
+            stop_motor(motor_z);
+            return;
+        }
+        sleep_ms(1);
+    }
+
+    if (!motor_z->movement_done) {
+        printf("ERROR,Motor Z nao completou movimento para cima\n");
+        stop_motor(motor_z);
+        return;
+    }
+
+    sleep_ms(10);  // Delay before next operation
+}
+
+void configure_z_axis_speed(stepper_motor_t *motor_z) {
+    // Z-axis often needs slower, more controlled movement
+    motor_z->initial_step_interval = 4000.0f;  // Slower start
+    motor_z->max_speed = 400;                   // Slower max
+    motor_z->actual_step_interval = motor_z->initial_step_interval;
+    motor_z->half_period_interval = motor_z->actual_step_interval * 0.5f;
+}
+
+
 // Callback para computar a largura do pulso enviado para o pino STEP do driver do motor
 int64_t alarm_irq_handler(alarm_id_t id, void *user_data) {
     // Obtém a instância do motor
@@ -437,10 +498,10 @@ void init_stepper_motor(stepper_motor_t *motor) {
     gpio_put(motor->ms3_pin, 1);
 
     // Valores iniciais para a rampa
-    motor->initial_step_interval  = 6200.0f;
+    motor->initial_step_interval  = 4000.0f;
     motor->actual_step_interval   = motor->initial_step_interval;
     motor->half_period_interval   = motor->actual_step_interval * 0.5f;
-    motor->max_speed              = 500;
+    motor->max_speed              = 400;
     motor->movement_done          = false;
     motor->step_state             = false;
     motor->step_position          = 0;
@@ -479,6 +540,12 @@ bool read_limit_switch(stepper_motor_t *motor) {
 
 // Executa o movimento relativo
 void move_n_steps(stepper_motor_t *motor, int32_t steps) {
+    if (motor->alarm_active) {
+        cancel_alarm(motor->alarm_id);
+        motor->alarm_active = false;
+        sleep_ms(5);
+    }
+
     // Reseta os valores da rampa
     motor->total_steps          = abs(steps);
     motor->step_count           = 0;
@@ -487,12 +554,17 @@ void move_n_steps(stepper_motor_t *motor, int32_t steps) {
     motor->movement_done        = false;
     motor->step_position        = motor->step_position;
     motor->step_state           = false;
+    motor->continuous_mode      = false;
     motor->actual_step_interval = motor->initial_step_interval;
     motor->half_period_interval = motor->actual_step_interval * 0.5f;
 
     // Define a direção de rotação
     motor->dir = steps > 0 ? 1 : -1;
     gpio_put(motor->dir_pin, steps < 0 ? 1 : 0);
+
+    gpio_put(motor->step_pin, 0);
+
+    sleep_us(5);
 
     // Agenda o alarme para o primeiro pulso (largura do pulso enviado ao pino STEP)
     motor->alarm_id = add_alarm_in_us((int64_t)motor->half_period_interval, alarm_irq_handler, motor, false);
@@ -615,7 +687,7 @@ bool home_single_motor(stepper_motor_t *motor, int motor_id) {
 
     // Reseta os parâmetros para os valores normais
     motor->initial_step_interval = 6200.0f;
-    motor->max_speed = 1000;
+    motor->max_speed = 500;
     motor->actual_step_interval = motor->initial_step_interval;
 
     printf("ACK,Motor %d: Posicao home definida\n", motor_id);
@@ -1233,56 +1305,76 @@ void parse_recallpos_command(const char* params) {
     stop_all_motors();
     sleep_ms(10);
 
+    uint32_t start_time = to_ms_since_boot(get_absolute_time());
+
     // Move motor 0 (eixo x)
     // Realiza a diferença entre a posição atual do motor e a desejada
     stepper_motor_t *motor0 = &steppers[0];
     int32_t steps_x = target_x - (int32_t)motor0->step_position;
     if (steps_x != 0) {
-        // motor0->initial_step_interval  = 5000.0f;
-        // motor0->max_speed              = 2000;
         move_n_steps(motor0, steps_x);
     }
+
+    while (motor0->alarm_active && !motor0->movement_done) {
+        sleep_ms(1);
+        if (to_ms_since_boot(get_absolute_time()) - start_time > 30000) {
+            printf("ERROR,Timeout esperando motores X/Y\n");
+            stop_all_motors();
+            return;
+        }
+    }
+
+    sleep_ms(5);
 
     // Move motor 1 (eixo y)
     if (active_motor_count >= 2) {
         stepper_motor_t *motor1 = &steppers[1];
         int32_t steps_y = target_y - (int32_t)motor1->step_position;
         if (steps_y != 0) {
-            // motor1->initial_step_interval  = 5000.0f;
-            // motor1->max_speed              = 2000;
             move_n_steps(motor1, steps_y);
         }
-    }
 
-    // Espera pelo termino dos movimentos
-    bool all_done = false;
-    while (!all_done) {
-        all_done = true;
-        if (motor0->alarm_active && !motor0->movement_done) {
-            all_done = false;
-        }
-        if (active_motor_count >= 2) {
-            stepper_motor_t *motor1 = &steppers[1];
-            if (motor1->alarm_active && !motor1->movement_done) {
-                all_done = false;
+        while (motor1->alarm_active && !motor1->movement_done) {
+            sleep_ms(1);
+            if (to_ms_since_boot(get_absolute_time()) - start_time > 30000) {
+                printf("ERROR,Timeout esperando motores X/Y\n");
+                stop_all_motors();
+                return;
             }
         }
-        if (!all_done) {
-            sleep_ms(1);
-        }
     }
 
-     // move o motor do eixo z
-    stepper_motor_t *motor2 = &steppers[2];
-    move_n_steps(motor2, 2500);
-    while (!motor2->movement_done && motor2->alarm_active) {
-        tight_loop_contents();
+
+    // Espera pelo termino dos movimentos
+    // bool all_done = false;
+    // while (!all_done) {
+    //     all_done = true;
+    //     if (motor0->alarm_active && !motor0->movement_done) {
+    //         all_done = false;
+    //     }
+    //     if (active_motor_count >= 2) {
+    //         stepper_motor_t *motor1 = &steppers[1];
+    //         if (motor1->alarm_active && !motor1->movement_done) {
+    //             all_done = false;
+    //         }
+    //     }
+    //     if (!all_done) {
+    //         sleep_ms(1);
+    //     }
+    // }
+
+    // move o motor do eixo z
+    if (active_motor_count >= 3) {
+        stepper_motor_t *motor2 = &steppers[2];
+
+        configure_z_axis_speed(motor2);
+
+        printf("ACK,Executando movimento Z\n");
+        execute_z_press_fixed(motor2);
+        printf("ACK,Movimento Z concluido\n");
     }
-    sleep_ms(5);
-    move_n_steps(motor2, -2500);
-    while (!motor2->movement_done && motor2->alarm_active) {
-        tight_loop_contents();
-    }
+
+
     // Delay opcional entre letras
     sleep_ms(300);
 
@@ -1332,62 +1424,78 @@ void parse_recallstring_command(const char* params) {
         stop_all_motors();
         sleep_ms(10);
 
-        // Move motor 0 (X)
+        uint32_t start_time = to_ms_since_boot(get_absolute_time());
+
+        // Move motor 0 (eixo x)
+        // Realiza a diferença entre a posição atual do motor e a desejada
         stepper_motor_t *motor0 = &steppers[0];
         int32_t steps_x = target_x - (int32_t)motor0->step_position;
         if (steps_x != 0) {
-            motor0->initial_step_interval  = 5000.0f;
-            motor0->max_speed              = 400;
             move_n_steps(motor0, steps_x);
         }
 
-        // Move motor 1 (Y)
+        while (motor0->alarm_active && !motor0->movement_done) {
+            sleep_ms(1);
+            if (to_ms_since_boot(get_absolute_time()) - start_time > 30000) {
+                printf("ERROR,Timeout esperando motores X/Y\n");
+                stop_all_motors();
+                return;
+            }
+        }
+
+        sleep_ms(5);
+
+        // Move motor 1 (eixo y)
         if (active_motor_count >= 2) {
             stepper_motor_t *motor1 = &steppers[1];
             int32_t steps_y = target_y - (int32_t)motor1->step_position;
             if (steps_y != 0) {
-                motor0->initial_step_interval  = 5000.0f;
-                motor0->max_speed              = 400;
                 move_n_steps(motor1, steps_y);
             }
-        }
 
-        // Espera concluir o movimento
-        bool all_done = false;
-        while (!all_done) {
-            all_done = true;
-            if (motor0->alarm_active && !motor0->movement_done) {
-                all_done = false;
-            }
-            if (active_motor_count >= 2) {
-                stepper_motor_t *motor1 = &steppers[1];
-                if (motor1->alarm_active && !motor1->movement_done) {
-                    all_done = false;
+            while (motor1->alarm_active && !motor1->movement_done) {
+                sleep_ms(1);
+                if (to_ms_since_boot(get_absolute_time()) - start_time > 30000) {
+                    printf("ERROR,Timeout esperando motores X/Y\n");
+                    stop_all_motors();
+                    return;
                 }
             }
-            if (!all_done) {
-                sleep_ms(1);
-            }
         }
 
-        // Atualiza interface
-        send_position_update();
+        // Espera pelo termino dos movimentos
+        // bool all_done = false;
+        // while (!all_done) {
+        //     all_done = true;
+        //     if (motor0->alarm_active && !motor0->movement_done) {
+        //         all_done = false;
+        //     }
+        //     if (active_motor_count >= 2) {
+        //         stepper_motor_t *motor1 = &steppers[1];
+        //         if (motor1->alarm_active && !motor1->movement_done) {
+        //             all_done = false;
+        //         }
+        //     }
+        //     if (!all_done) {
+        //         sleep_ms(1);
+        //     }
+        // }
 
         // move o motor do eixo z
-        stepper_motor_t *motor2 = &steppers[2];
-        move_n_steps(motor2, 2600);
-        while (!motor2->movement_done) {
-            tight_loop_contents();
+        if (active_motor_count >= 3) {
+            stepper_motor_t *motor2 = &steppers[2];
+
+            configure_z_axis_speed(motor2);
+
+            printf("ACK,Executando movimento Z\n");
+            execute_z_press_fixed(motor2);
+            printf("ACK,Movimento Z concluido\n");
         }
-        sleep_ms(2);
-        move_n_steps(motor2, -2600);
-        while (!motor2->movement_done) {
-            tight_loop_contents();
-        }
+
         // Delay opcional entre letras
         sleep_ms(300);
     }
-    
+
     printf("ACK,Palavra '%s' foi percorrida com sucesso\n", params);
 }
 

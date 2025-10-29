@@ -13,9 +13,9 @@
 #define LED_PIN              25
 
 // Parâmetros da comunicação UART
-#define UART_ID              uart1
-#define UART_TX              20
-#define UART_RX              21
+#define UART_ID              uart0
+#define UART_TX              12
+#define UART_RX              13
 #define UART_BAUD_RATE       115200
 #define UART_BUFFER_SIZE     256
 
@@ -95,8 +95,8 @@ typedef struct {
 // Declara os motores de passo
 stepper_motor_t steppers[3] = {
     { .dir_pin = 16, .step_pin = 17, .ms1_pin = 13, .ms2_pin = 14, .ms3_pin = 15, .limit_switch_pin = LIMIT_SWITCH_X_PIN },
-    { .dir_pin = 0, .step_pin = 1, .ms1_pin = 13, .ms2_pin = 14, .ms3_pin = 15, .limit_switch_pin = LIMIT_SWITCH_Y_PIN },
-    { .dir_pin = 19, .step_pin = 18, .ms1_pin = 13, .ms2_pin = 14, .ms3_pin = 15, .limit_switch_pin = LIMIT_SWITCH_Z_PIN }
+    { .dir_pin = 0, .step_pin = 3, .ms1_pin = 13, .ms2_pin = 14, .ms3_pin = 15, .limit_switch_pin = LIMIT_SWITCH_Y_PIN },
+    { .dir_pin = 19, .step_pin = 20, .ms1_pin = 13, .ms2_pin = 14, .ms3_pin = 15, .limit_switch_pin = LIMIT_SWITCH_Z_PIN }
 };
 
 // Define variáveis realacionadas aos comandos enviados da interface

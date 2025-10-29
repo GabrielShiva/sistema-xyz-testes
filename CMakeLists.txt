@@ -52,8 +52,8 @@ add_executable(controle_motor
     # joystick_control_v5.c
     # joystick_control_v6.c
     # joystick_control_v7.c
-    # joystick_control_v8.c
-    control_pwm.c
+    joystick_control_v8.c
+    # control_pwm.c
     # keyboard.c
     # joystick_control_v9.c
     # switches_test.c
