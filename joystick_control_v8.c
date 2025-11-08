@@ -71,8 +71,8 @@ typedef struct {
 
 // Declara os motores de passo
 stepper_motor_t steppers[3] = {
-    { .dir_pin = 16, .step_pin = 17, .ms1_pin = 13, .ms2_pin = 14, .ms3_pin = 15, .limit_switch_pin = LIMIT_SWITCH_X_PIN },
-    { .dir_pin = 0, .step_pin = 3, .ms1_pin = 13, .ms2_pin = 14, .ms3_pin = 15, .limit_switch_pin = LIMIT_SWITCH_Y_PIN },
+    { .dir_pin = 18, .step_pin = 19, .ms1_pin = 13, .ms2_pin = 14, .ms3_pin = 15, .limit_switch_pin = LIMIT_SWITCH_X_PIN },
+    { .dir_pin = 0, .step_pin = 1, .ms1_pin = 13, .ms2_pin = 14, .ms3_pin = 15, .limit_switch_pin = LIMIT_SWITCH_Y_PIN },
     { .dir_pin = 19, .step_pin = 20, .ms1_pin = 13, .ms2_pin = 14, .ms3_pin = 15, .limit_switch_pin = LIMIT_SWITCH_Z_PIN }
 };
 
@@ -92,11 +92,11 @@ uint16_t joystick_y_center = 2048;
 
 // Define o estado atual do sistema e a quantidade de motores ativos no momento
 system_state_t current_state = STATE_JOYSTICK;
-uint8_t active_motor_count = 3; // define o numero de motores ligados
+uint8_t active_motor_count = 2; // define o numero de motores ligados
 
 // Define os parâmetros de homing
-#define HOMING_SPEED_SLOW 2000  // μs - slow speed for final approach
-#define HOMING_SPEED_FAST 1000  // μs - fast speed for initial movement
+#define HOMING_SPEED_SLOW 3000  // μs - slow speed for final approach
+#define HOMING_SPEED_FAST 2000  // μs - fast speed for initial movement
 #define HOMING_BACKOFF_STEPS 130 // steps to back off from limit switch
 
 // Declaração de funções
@@ -174,7 +174,7 @@ int main (void) {
     init_saved_positions();
 
     // Inicializa os motores
-    for (uint i = 0; i < 3; i++) {
+    for (uint i = 0; i < 2; i++) {
         init_stepper_motor(&steppers[i]);
     }
 
@@ -498,10 +498,10 @@ void init_stepper_motor(stepper_motor_t *motor) {
     gpio_put(motor->ms3_pin, 1);
 
     // Valores iniciais para a rampa
-    motor->initial_step_interval  = 4000.0f;
+    motor->initial_step_interval  = 6200.0f;
     motor->actual_step_interval   = motor->initial_step_interval;
     motor->half_period_interval   = motor->actual_step_interval * 0.5f;
-    motor->max_speed              = 400;
+    motor->max_speed              = 1000;
     motor->movement_done          = false;
     motor->step_state             = false;
     motor->step_position          = 0;
@@ -687,7 +687,7 @@ bool home_single_motor(stepper_motor_t *motor, int motor_id) {
 
     // Reseta os parâmetros para os valores normais
     motor->initial_step_interval = 6200.0f;
-    motor->max_speed = 500;
+    motor->max_speed = 1000;
     motor->actual_step_interval = motor->initial_step_interval;
 
     printf("ACK,Motor %d: Posicao home definida\n", motor_id);
@@ -1364,19 +1364,21 @@ void parse_recallpos_command(const char* params) {
     // }
 
     // move o motor do eixo z
-    if (active_motor_count >= 3) {
-        stepper_motor_t *motor2 = &steppers[2];
+    // if (active_motor_count >= 3) {
+    //     stepper_motor_t *motor2 = &steppers[2];
 
-        configure_z_axis_speed(motor2);
+    //     configure_z_axis_speed(motor2);
 
-        printf("ACK,Executando movimento Z\n");
-        execute_z_press_fixed(motor2);
-        printf("ACK,Movimento Z concluido\n");
-    }
+    //     printf("ACK,Executando movimento Z\n");
+    //     execute_z_press_fixed(motor2);
+    //     printf("ACK,Movimento Z concluido\n");
+    // }
 
 
     // Delay opcional entre letras
     sleep_ms(300);
+
+    home_all_motors();
 
     // Espera a tecla ser pressionada
     // char caracter = uart_getc(uart1);
@@ -1463,6 +1465,8 @@ void parse_recallstring_command(const char* params) {
             }
         }
 
+        sleep_ms(30);
+
         // Espera pelo termino dos movimentos
         // bool all_done = false;
         // while (!all_done) {
@@ -1482,19 +1486,21 @@ void parse_recallstring_command(const char* params) {
         // }
 
         // move o motor do eixo z
-        if (active_motor_count >= 3) {
-            stepper_motor_t *motor2 = &steppers[2];
+        // if (active_motor_count >= 3) {
+        //     stepper_motor_t *motor2 = &steppers[2];
 
-            configure_z_axis_speed(motor2);
+        //     configure_z_axis_speed(motor2);
 
-            printf("ACK,Executando movimento Z\n");
-            execute_z_press_fixed(motor2);
-            printf("ACK,Movimento Z concluido\n");
-        }
+        //     printf("ACK,Executando movimento Z\n");
+        //     execute_z_press_fixed(motor2);
+        //     printf("ACK,Movimento Z concluido\n");
+        // }
 
         // Delay opcional entre letras
         sleep_ms(300);
     }
+
+    home_all_motors();
 
     printf("ACK,Palavra '%s' foi percorrida com sucesso\n", params);
 }

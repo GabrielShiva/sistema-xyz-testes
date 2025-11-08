@@ -13,9 +13,9 @@
 #define LED_PIN              25
 
 // Parâmetros da comunicação UART
-#define UART_ID              uart0
-#define UART_TX              12
-#define UART_RX              13
+#define UART_ID              uart1
+#define UART_TX              4
+#define UART_RX              5
 #define UART_BAUD_RATE       115200
 #define UART_BUFFER_SIZE     256
 
@@ -170,11 +170,14 @@ void init_limit_switches(void);
 
 int main (void) {
     stdio_init_all();
+    sleep_ms(10000);
+    printf("start!!");
 
     // Inicializa o ADC para o joystick
     adc_init();
     adc_gpio_init(JOYSTICK_X_PIN);
     adc_gpio_init(JOYSTICK_Y_PIN);
+    printf("start II!!");
 
     // Inicializa o LED do raspberry
     gpio_init(LED_PIN); gpio_set_dir(LED_PIN, GPIO_OUT); gpio_put(LED_PIN, 0);
@@ -182,7 +185,7 @@ int main (void) {
     // Cria instância do timer para o LED e chama a cada 500 ms
     repeating_timer_t led_timer;
     add_repeating_timer_ms(500, led_callback, NULL, &led_timer);
-
+    printf("start III!!");
     // Initialize limit switches
     init_limit_switches();
 
@@ -193,6 +196,7 @@ int main (void) {
     for (uint i = 0; i < 3; i++) {
         init_stepper_motor(&steppers[i]);
     }
+    printf("start IV!!");
 
     // Calibração inicial do joystick: lê 100 amostras e define o centro
     // Nesse momento, o joystick não deve ser movido
@@ -204,23 +208,34 @@ int main (void) {
     saved_positions[3] = (saved_position_t){ .character = 'd', .x_position = 0, .y_position = 2195, .is_used = true };
     saved_positions[4] = (saved_position_t){ .character = 'e', .x_position = 4147, .y_position = 955, .is_used = true };
 
+    printf("start V!!");
     // Envia o estado do sistema e a posição atual para a interface (INICIALIZAÇÃO DA INTERFACE)
-    send_state_update();
-    send_position_update();
-    send_saved_positions_update();
-    send_homing_status();
-
+    printf("começo uart\n");
     // Inicializa a UART para comunicar com a outra placa
     uart_init(UART_ID, UART_BAUD_RATE);
     gpio_set_function(UART_TX, GPIO_FUNC_UART);
     gpio_set_function(UART_RX, GPIO_FUNC_UART);
+    printf("fim uart\n");
+
+
+    send_state_update();
+    printf("start VI!!");
+    send_position_update();
+    printf("start VII!!");
+    send_saved_positions_update();
+    printf("start VIII!!");
+    send_homing_status();
+
 
     while (true) {
+        //printf("antes de processar");
         // Processa os dados vindos via serial (dados enviados pela interface)
         process_uart_input();
 
         // Se o comando foi processado, lidar com o comando
         if (command_ready) {
+
+            printf("msg: %s\n", command_buffer);
             // Executa a função relacionada ao comando
             handle_command(command_buffer);
 
@@ -279,18 +294,24 @@ int main (void) {
 }
 
 void process_uart_input(void) {
+    //printf("função de processamento\n");
     while (uart_is_readable(UART_ID)) {
+        printf("readable\n");
         int c = uart_getc(UART_ID);
+         printf("msg: %c\n", c);
         if (c == '\r' || c == '\n') {
             if (command_buffer_pos > 0) {
                 command_buffer[command_buffer_pos] = '\0';
                 command_ready = true;
                 command_buffer_pos = 0;
+                printf("msg: %s\n", command_buffer);
             }
         } else if (c >= 32 && c <= 128) {
             if (command_buffer_pos < COMMAND_BUFFER_SIZE - 1) {
                 command_buffer[command_buffer_pos++] = (char)c;
             }
+
+            printf("msg: %s\n", command_buffer);
         }
     }
 
@@ -967,11 +988,16 @@ void parse_speed_command(const char* params) {
 
 // Define o modo do sistema: MODE,JOYSTICK ou MODE,COMMAND
 void parse_mode_command(const char* params) {
+    char rbuffer[256];
+
     if (strcmp(params, "JOYSTICK") == 0) {
         if (current_state != STATE_JOYSTICK) {
             stop_all_motors();
             current_state = STATE_JOYSTICK;
             printf("ACK,Alterado para o modo JOYSTICK\n");
+
+            snprintf(rbuffer, 256, "ACK,Alterado para o modo JOYSTICK\n");
+            uart_puts(UART_ID, rbuffer);
             send_state_update();
         }
     }
@@ -980,26 +1006,35 @@ void parse_mode_command(const char* params) {
             stop_all_motors();
             current_state = STATE_COMMAND;
             printf("ACK,Alterado para o modo de COMANDO\n");
+
+            snprintf(rbuffer, 256, "ACK,Alterado para o modo de COMANDO\n");
+            uart_puts(UART_ID, rbuffer);
             send_state_update();
         }
     }
     else {
         printf("ERROR,Modo invalido: %s (use JOYSTICK ou COMMAND)\n", params);
+
+        snprintf(rbuffer, 256, "ERROR,Modo invalido: %s (use JOYSTICK ou COMMAND)\n", params);
+        uart_puts(UART_ID, rbuffer);
     }
 }
 
 // Define a quantidade de motores ativos: MOTORS,<count>
 void parse_motors_command(const char* params) {
     int count = atoi(params);
+    char rbuffer[256];
 
     if (count >= 1 && count <= 3) {
         stop_all_motors();
 
         active_motor_count = (uint8_t)count;
-        printf("ACK,Numero de motores definido para %d\n", count);
+        snprintf(rbuffer, 256, "ACK,Numero de motores definido para %d\n", count);
+        uart_puts(UART_ID, rbuffer);
         send_state_update();
     } else {
-        printf("ERROR,Numero de motores invalido: %d (deve estar entre 1-3)\n", count);
+        snprintf(rbuffer, 256, "ERROR,Numero de motores invalido: %d (deve estar entre 1-3)\n", count);
+        uart_puts(UART_ID, rbuffer);
     }
 }
 
