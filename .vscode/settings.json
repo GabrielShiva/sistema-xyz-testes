@@ -1,4 +1,5 @@
 {
+    "editor.lineHeight": 19,
     "cmake.showSystemKits": false,
     "cmake.options.statusBarVisibility": "hidden",
     "cmake.options.advanced": {
