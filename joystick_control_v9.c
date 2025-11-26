@@ -20,17 +20,17 @@
 #define UART_BUFFER_SIZE     256
 
 // GPIOs do joystick
-#define JOYSTICK_X_PIN       27
-#define JOYSTICK_Y_PIN       28
+#define JOYSTICK_X_PIN 27
+#define JOYSTICK_Y_PIN 28
 
 // Parâmetros para amostragem do centro do joystick
 #define NUM_CAL_SAMPLES      100
 #define CAL_SAMPLE_DELAY_MS  5
 
 // GPIOs do fim de curso
-#define LIMIT_SWITCH_X_PIN   9
-#define LIMIT_SWITCH_Y_PIN   8
-#define LIMIT_SWITCH_Z_PIN   10
+#define LIMIT_SWITCH_X_PIN 10
+#define LIMIT_SWITCH_Y_PIN 11
+#define LIMIT_SWITCH_Z_PIN 12
 
 // Parâmetros de comando
 #define MAX_SAVED_POSITIONS  26
@@ -63,10 +63,6 @@ typedef struct {
     // Pinos de controle
     uint dir_pin;
     uint step_pin;
-    // Pinos de resolução
-    uint ms1_pin;
-    uint ms2_pin;
-    uint ms3_pin;
     // Pino do switch de limite
     uint limit_switch_pin;
     // Variáveis de controle de velocidade
@@ -76,7 +72,7 @@ typedef struct {
     volatile uint32_t total_steps;
     volatile uint32_t step_count;
     volatile uint32_t ramp_up_count;
-    volatile uint32_t step_position;
+    volatile int32_t step_position;
     volatile uint32_t acceleration_counter;
     volatile uint32_t max_speed;
     volatile int      dir;
@@ -94,9 +90,9 @@ typedef struct {
 
 // Declara os motores de passo
 stepper_motor_t steppers[3] = {
-    { .dir_pin = 16, .step_pin = 17, .ms1_pin = 13, .ms2_pin = 14, .ms3_pin = 15, .limit_switch_pin = LIMIT_SWITCH_X_PIN },
-    { .dir_pin = 0, .step_pin = 3, .ms1_pin = 13, .ms2_pin = 14, .ms3_pin = 15, .limit_switch_pin = LIMIT_SWITCH_Y_PIN },
-    { .dir_pin = 19, .step_pin = 20, .ms1_pin = 13, .ms2_pin = 14, .ms3_pin = 15, .limit_switch_pin = LIMIT_SWITCH_Z_PIN }
+    { .dir_pin = 16, .step_pin = 17, .limit_switch_pin = LIMIT_SWITCH_X_PIN }, // mot_1_x
+    { .dir_pin = 0, .step_pin = 1, .limit_switch_pin = LIMIT_SWITCH_Y_PIN }, // mot_2_y
+    { .dir_pin = 22, .step_pin = 26, .limit_switch_pin = LIMIT_SWITCH_Z_PIN } // mot_3_z
 };
 
 // Define variáveis realacionadas aos comandos enviados da interface
@@ -111,7 +107,7 @@ uint16_t joystick_x_center = 2048;
 uint16_t joystick_y_center = 2048;
 
 // Define o estado atual do sistema e a quantidade de motores ativos no momento
-system_state_t current_state = STATE_JOYSTICK;
+system_state_t current_state = STATE_COMMAND;
 uint8_t active_motor_count = 3; // define o numero de motores ligados
 
 // Declaração de funções
@@ -170,14 +166,12 @@ void init_limit_switches(void);
 
 int main (void) {
     stdio_init_all();
-    sleep_ms(10000);
-    printf("start!!");
+    sleep_ms(2000);
 
     // Inicializa o ADC para o joystick
     adc_init();
     adc_gpio_init(JOYSTICK_X_PIN);
     adc_gpio_init(JOYSTICK_Y_PIN);
-    printf("start II!!");
 
     // Inicializa o LED do raspberry
     gpio_init(LED_PIN); gpio_set_dir(LED_PIN, GPIO_OUT); gpio_put(LED_PIN, 0);
@@ -185,7 +179,6 @@ int main (void) {
     // Cria instância do timer para o LED e chama a cada 500 ms
     repeating_timer_t led_timer;
     add_repeating_timer_ms(500, led_callback, NULL, &led_timer);
-    printf("start III!!");
     // Initialize limit switches
     init_limit_switches();
 
@@ -196,11 +189,11 @@ int main (void) {
     for (uint i = 0; i < 3; i++) {
         init_stepper_motor(&steppers[i]);
     }
-    printf("start IV!!");
 
     // Calibração inicial do joystick: lê 100 amostras e define o centro
     // Nesse momento, o joystick não deve ser movido
-    joystick_y_center = read_joystick_average(1, NUM_CAL_SAMPLES, CAL_SAMPLE_DELAY_MS);
+    joystick_x_center = read_joystick_average(1, NUM_CAL_SAMPLES, CAL_SAMPLE_DELAY_MS);
+    joystick_y_center = read_joystick_average(2, NUM_CAL_SAMPLES, CAL_SAMPLE_DELAY_MS);
 
     saved_positions[0] = (saved_position_t){ .character = 'a', .x_position = 1906, .y_position = 337, .is_used = true };
     saved_positions[1] = (saved_position_t){ .character = 'b', .x_position = 1051, .y_position = 1579, .is_used = true };
@@ -208,34 +201,57 @@ int main (void) {
     saved_positions[3] = (saved_position_t){ .character = 'd', .x_position = 0, .y_position = 2195, .is_used = true };
     saved_positions[4] = (saved_position_t){ .character = 'e', .x_position = 4147, .y_position = 955, .is_used = true };
 
-    printf("start V!!");
     // Envia o estado do sistema e a posição atual para a interface (INICIALIZAÇÃO DA INTERFACE)
-    printf("começo uart\n");
     // Inicializa a UART para comunicar com a outra placa
     uart_init(UART_ID, UART_BAUD_RATE);
     gpio_set_function(UART_TX, GPIO_FUNC_UART);
     gpio_set_function(UART_RX, GPIO_FUNC_UART);
-    printf("fim uart\n");
 
+    printf("HELLLLLLOOO!\n");
 
-    send_state_update();
-    printf("start VI!!");
-    send_position_update();
-    printf("start VII!!");
-    send_saved_positions_update();
-    printf("start VIII!!");
-    send_homing_status();
+    // Espera por mensagem de conexão
+    // START_CONN\n
+    // while (!uart_is_readable(UART_ID))
+    // {
+    //     tight_loop_contents();
+    // }
+    
+    // char received_msg[256];
+    // int char_count = 0;
+
+    // while (uart_is_readable(UART_ID))
+    // {
+    //     char c = uart_getc(UART_ID);
+
+    //     if (char_count < 255) {
+    //         received_msg[char_count++] = c;
+    //     }
+
+    //     if (c == '\n' || c == '\r') {
+    //         command_buffer[char_count] = '\0';
+    //         char_count = 0;
+    //     }
+    // }
+
+    // if (!(strcmp(received_msg, "START_CONN") == 0)) {
+    //     char_count = 0;
+    //     received_msg[0] = '\0';
+    //     strncpy(received_msg, "ERROR\n", 255);
+    //     uart_puts(UART_ID, received_msg);
+    // }
+
+    // send_state_update();
+    // send_position_update();
+    // send_saved_positions_update();
+    // send_homing_status();
 
 
     while (true) {
-        //printf("antes de processar");
         // Processa os dados vindos via serial (dados enviados pela interface)
         process_uart_input();
 
         // Se o comando foi processado, lidar com o comando
         if (command_ready) {
-
-            printf("msg: %s\n", command_buffer);
             // Executa a função relacionada ao comando
             handle_command(command_buffer);
 
@@ -259,7 +275,7 @@ int main (void) {
                 control_motor_from_joystick(&steppers[1], y_reading, joystick_y_center);
             }
 
-            // Envia os dados lidos pelo joystick para a interface (Apenas se eles mudaram)
+                // Envia os dados lidos pelo joystick para a interface (Apenas se eles mudaram)
             static uint16_t last_x_reading = 0;
             static uint16_t last_y_reading = 0;
             static float last_x_interval = 0;
@@ -294,24 +310,17 @@ int main (void) {
 }
 
 void process_uart_input(void) {
-    //printf("função de processamento\n");
     while (uart_is_readable(UART_ID)) {
-        printf("readable\n");
-        int c = uart_getc(UART_ID);
-         printf("msg: %c\n", c);
-        if (c == '\r' || c == '\n') {
-            if (command_buffer_pos > 0) {
-                command_buffer[command_buffer_pos] = '\0';
-                command_ready = true;
-                command_buffer_pos = 0;
-                printf("msg: %s\n", command_buffer);
-            }
-        } else if (c >= 32 && c <= 128) {
-            if (command_buffer_pos < COMMAND_BUFFER_SIZE - 1) {
-                command_buffer[command_buffer_pos++] = (char)c;
-            }
+        char c = uart_getc(UART_ID);
 
-            printf("msg: %s\n", command_buffer);
+        if (command_buffer_pos < 255) {        
+            command_buffer[command_buffer_pos++] = c;
+        }
+
+        if (c == '\r' || c == '\n') {
+            command_buffer[command_buffer_pos] = '\0';
+            command_buffer_pos = 0;
+            command_ready = true;
         }
     }
 
@@ -437,18 +446,6 @@ void init_stepper_motor(stepper_motor_t *motor) {
 
     gpio_init(motor->dir_pin);
     gpio_set_dir(motor->dir_pin, GPIO_OUT);
-
-    gpio_init(motor->ms1_pin);
-    gpio_set_dir(motor->ms1_pin, GPIO_OUT);
-    gpio_init(motor->ms2_pin);
-    gpio_set_dir(motor->ms2_pin, GPIO_OUT);
-    gpio_init(motor->ms3_pin);
-    gpio_set_dir(motor->ms3_pin, GPIO_OUT);
-
-    // Define a resolução de 1/16
-    gpio_put(motor->ms1_pin, 1);
-    gpio_put(motor->ms2_pin, 1);
-    gpio_put(motor->ms3_pin, 1);
 
     // Valores iniciais para a rampa
     motor->initial_step_interval  = 6200.0f;
@@ -702,7 +699,7 @@ void send_homing_status(void) {
     }
 
     snprintf(rbuffer + pos, sizeof(rbuffer) - pos, "\n");
-
+    printf("MSG 2: %s\n\n", rbuffer);
     uart_puts(UART_ID, rbuffer);
 }
 
@@ -794,11 +791,10 @@ void control_motor_from_joystick(stepper_motor_t *motor, uint16_t reading, uint1
 // Direciona para as funções de acordo com o comando enviado via serial
 void handle_command(const char* command) {
     char rbuffer[256];
-    // snprintf(buffer, "");
 
     if (strncmp(command, "MOVE,", 5) == 0) {
         if (current_state != STATE_COMMAND) {
-            sprintf(rbuffer, "ERROR,Nao pode mover no modo joystick\n");
+            sprintf(rbuffer, "ERROR,Nao pode mover no modo de teste\n");
             uart_puts(UART_ID, rbuffer);
             return;
         }
@@ -806,7 +802,7 @@ void handle_command(const char* command) {
     }
     else if (strncmp(command, "SPEED,", 6) == 0) {
         if (current_state != STATE_COMMAND) {
-            sprintf(rbuffer, "ERROR,Nao pode definir velocidade no modo joystick\n");
+            sprintf(rbuffer, "ERROR,Nao pode definir velocidade no modo de teste\n");
             uart_puts(UART_ID, rbuffer);
             return;
         }
@@ -825,7 +821,7 @@ void handle_command(const char* command) {
     }
     else if (strncmp(command, "MOVETO,", 7) == 0) {
         if (current_state != STATE_COMMAND) {
-            sprintf(rbuffer, "ERROR,Nao pode posicionar no modo joystick\n");
+            sprintf(rbuffer, "ERROR,Nao pode posicionar no modo de teste\n");
             uart_puts(UART_ID, rbuffer);
             return;
         }
@@ -833,7 +829,7 @@ void handle_command(const char* command) {
     }
     else if (strncmp(command, "HOME", 4) == 0) {
         if (current_state == STATE_JOYSTICK) {
-            sprintf(rbuffer, "ERROR,Nao pode executar homing no modo joystick\n");
+            sprintf(rbuffer, "ERROR,Nao pode executar homing no modo de teste\n");
             uart_puts(UART_ID, rbuffer);
             return;
         }
@@ -848,7 +844,7 @@ void handle_command(const char* command) {
     }
     else if (strncmp(command, "RECALLPOS,", 10) == 0) {
         if (current_state != STATE_COMMAND) {
-            sprintf(rbuffer, "ERROR,Nao pode recuperar posicao no modo joystick\n");
+            sprintf(rbuffer, "ERROR,Nao pode recuperar posicao no modo de teste\n");
             uart_puts(UART_ID, rbuffer);
             return;
         }
@@ -869,15 +865,23 @@ void handle_command(const char* command) {
     }
     else if (strncmp(command, "RECALLSTRING,", 13) == 0) {
         if (current_state != STATE_COMMAND) {
-            sprintf(rbuffer, "ERROR,Nao pode executar RECALLSTRING no modo joystick\n");
+            sprintf(rbuffer, "ERROR,Nao pode executar RECALLSTRING no modo teste\n");
             uart_puts(UART_ID, rbuffer);
             return;
         }
         parse_recallstring_command(command + 13);
     }
+    else if (strncmp(command, "GET_HOMING", 10) == 0) {
+        if (current_state != STATE_COMMAND) {
+            sprintf(rbuffer, "ERROR,Nao pode executar RECALLSTRING no modo teste\n");
+            uart_puts(UART_ID, rbuffer);
+            return;
+        }
+        send_homing_status();
+    }
     else if (strncmp(command, "SETZERO", 7) == 0) {
         if (current_state != STATE_COMMAND) {
-            sprintf(rbuffer, "ERROR,Nao pode definir origem no modo joystick\n");
+            sprintf(rbuffer, "ERROR,Nao pode definir origem no modo teste\n");
             uart_puts(UART_ID, rbuffer);
             return;
         }
@@ -911,8 +915,7 @@ void handle_command(const char* command) {
         uart_puts(UART_ID, rbuffer);
 
         send_state_update();
-    }
-    else {
+    } else {
         snprintf(rbuffer, 256, "ERROR,Comando desconhecido: %s\n", command);
         uart_puts(UART_ID, rbuffer);
     }
@@ -1180,6 +1183,7 @@ void send_position_update(void) {
     }
 
     snprintf(rbuffer + pos, sizeof(rbuffer) - pos, "\n");
+    printf("MSG: %s\n", rbuffer);
     uart_puts(UART_ID, rbuffer);
 }
 
