@@ -258,6 +258,9 @@ class ControlGUI {
         document.getElementById('keyboard-select').addEventListener('change', () => {
             this.renderKeyboardKeys();
         });
+        document.getElementById('keyboard-select-sec').addEventListener('change', () => {
+            this.renderKeyboardKeys(0);
+        });
         // document.getElementById('recall-position-btn').addEventListener('click', () => this.recallPosition());
         // document.getElementById('clear-positions-btn').addEventListener('click', () => this.clearAllPositions());
         // document.getElementById('test-all-positions-btn').addEventListener('click', () => this.testAllPositions());
@@ -418,7 +421,7 @@ class ControlGUI {
                 document.querySelector('#new-positions-section').classList.remove('section-active');
                 document.querySelector('#keyboard-test-section').classList.add('section-active');
 
-                this.updateKeyboardSelect();
+                this.updateKeyboardSelect(0);
                 break;
             case 'homing':
                 stateIndicator.className = 'status-indicator status-homing';
@@ -505,34 +508,74 @@ class ControlGUI {
         // this.updateCharts(xReading, yReading);
     }
 
-    renderKeyboardKeys() {
-        const container = document.getElementById('keyboard-keys-container');
-        container.innerHTML = ''; // limpa tudo
+    renderKeyboardKeys(opt = 1) {
+        if (opt) {
+            const container = document.getElementById('keyboard-keys-container');
+            container.innerHTML = ''; // limpa tudo
 
-        const keyboardId = document.getElementById('keyboard-select').value;
-        const keyboardObj = this.keyboardDataToSave.find(k => k.name == keyboardId);
+            const keyboardId = document.getElementById('keyboard-select').value;
+            const keyboardObj = this.keyboardDataToSave.find(k => k.name == keyboardId);
 
-        if (!keyboardObj || !keyboardObj.keys || keyboardObj.keys.length === 0) {
-            container.innerHTML = '<span>Nenhuma posição salva!</span>';
-            return;
+            if (!keyboardObj || !keyboardObj.keys || keyboardObj.keys.length === 0) {
+                container.innerHTML = '<span>Nenhuma posição salva!</span>';
+                return;
+            }
+
+            keyboardObj.keys.forEach(key => {
+                const div = document.createElement('div');
+                div.classList.add('keyboard-key');
+                div.dataset.keyVal = key.character;
+
+                div.innerHTML = `
+                    <span class="keyboard-key-val">${key.character}</span>
+                    <div>
+                        <div class="keyboard-key-x-val">X: ${key.xPos}</div>
+                        <div class="keyboard-key-y-val">Y: ${key.yPos}</div>
+                    </div>
+                    <button class="button danger remove-key-btn">X</button>
+                `;
+
+                container.appendChild(div);
+            });
+        } else {
+            const container = document.getElementById('keyboard-keys-container-sec');
+            container.innerHTML = ''; // limpa tudo
+
+            const keyboardId = document.getElementById('keyboard-select-sec').value;
+            const keyboardObj = this.keyboardDataToSave.find(k => k.name == keyboardId);
+
+            if (!keyboardObj || !keyboardObj.keys || keyboardObj.keys.length === 0) {
+                container.innerHTML = '<span>Nenhuma posição salva!</span>';
+                return;
+            }
+
+            keyboardObj.keys.forEach(key => {
+                const div = document.createElement('div');
+                div.classList.add('keyboard-key');
+                div.dataset.keyVal = key.character;
+
+                div.innerHTML = `
+                    <span class="keyboard-key-val">${key.character}</span>
+                    <div>
+                        <div class="keyboard-key-x-val">X: ${key.xPos}</div>
+                        <div class="keyboard-key-y-val">Y: ${key.yPos}</div>
+                    </div>
+                    <button class="button primary test-key-btn" data-key-x="${key.xPos}" data-key-y="${key.yPos}">Testar</button>
+                `;
+
+                container.appendChild(div);
+            });
+
+            document.querySelectorAll('.test-key-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const xPos = btn.dataset.keyX;
+                    const yPos = btn.dataset.keyY;
+                    // this.sendCommand(`TESTPOS,${xPos},${yPos}`);
+                    this.sendCommand(`MOVETO,0,${xPos},1,${yPos},1`);
+                });
+            });
+            
         }
-
-        keyboardObj.keys.forEach(key => {
-            const div = document.createElement('div');
-            div.classList.add('keyboard-key');
-            div.dataset.keyVal = key.character;
-
-            div.innerHTML = `
-                <span class="keyboard-key-val">${key.character}</span>
-                <div>
-                    <div class="keyboard-key-x-val">X: ${key.xPos}</div>
-                    <div class="keyboard-key-y-val">Y: ${key.yPos}</div>
-                </div>
-                <button class="button danger remove-key-btn">X</button>
-            `;
-
-            container.appendChild(div);
-        });
     }
 
     // Leitura contínua e processamento dos dados de comunicação
@@ -565,8 +608,6 @@ class ControlGUI {
 
     processDataLine(line) {
         if (!line) return;
-
-        console.log(line);
 
         if (line.startsWith('DATA,')) {
             try {
@@ -621,7 +662,6 @@ class ControlGUI {
                 const parts = line.split(',');
                 if (parts.length >= 2) {
                     this.currentState = parts[1].toLowerCase();
-                    // console.log(this.currentState);
                     if (parts.length >= 3) {
                         this.motorCount = parseInt(parts[2]);
                     }
@@ -664,25 +704,25 @@ class ControlGUI {
                 this.addLogEntry(`Homing status parse error: ${error.message}`, 'error');
             }
         } else if (line.startsWith('SAVED_POSITIONS,')) {
-            try {
-                // Parse saved positions from device
-                // Format: SAVED_POSITIONS,char1,x1,y1,char2,x2,y2,...
-                const parts = line.split(',');
-                this.savedPositions = [];
+            // try {
+            //     // Parse saved positions from device
+            //     // Format: SAVED_POSITIONS,char1,x1,y1,char2,x2,y2,...
+            //     const parts = line.split(',');
+            //     this.savedPositions = [];
 
-                for (let i = 1; i < parts.length; i += 3) {
-                    if (i + 2 < parts.length) {
-                        this.savedPositions.push({
-                            character: parts[i],
-                            x_position: parseInt(parts[i + 1]),
-                            y_position: parseInt(parts[i + 2])
-                        });
-                    }
-                }
-                this.updateSavedPositionsDisplay();
-            } catch (error) {
-                this.addLogEntry(`Saved positions parse error: ${error.message}`, 'error');
-            }
+            //     for (let i = 1; i < parts.length; i += 3) {
+            //         if (i + 2 < parts.length) {
+            //             this.savedPositions.push({
+            //                 character: parts[i],
+            //                 x_position: parseInt(parts[i + 1]),
+            //                 y_position: parseInt(parts[i + 2])
+            //             });
+            //         }
+            //     }
+            //     this.updateSavedPositionsDisplay();
+            // } catch (error) {
+            //     this.addLogEntry(`Saved positions parse error: ${error.message}`, 'error');
+            // }
         } else if (line.startsWith('ACK,') || line.startsWith('ERROR,') || line.startsWith('WARNING,')) {
             const type = line.startsWith('ERROR,') ? 'error' : line.startsWith('WARNING,') ? 'warning' : 'success';
             this.addLogEntry(line, type);
@@ -861,21 +901,39 @@ class ControlGUI {
         // alert("Novo teclado foi criado! Realize o mapeamento das teclas na seção \"Novas Teclas\".");
     }
 
-    updateKeyboardSelect() {
-        const select = document.getElementById('keyboard-select');
+    updateKeyboardSelect(opt = 1) {
 
-        // Limpa tudo e adiciona a primeira opção
-        select.innerHTML = `<option value="">Nenhum teclado selecionado</option>`;
+        if (opt) {
+            const select = document.getElementById('keyboard-select');
 
-        // Adiciona opções baseado no array
-        this.keyboardDataToSave.forEach((keyboard, index) => {
-            const option = document.createElement("option");
-            option.value = keyboard.name; 
-            option.textContent = keyboard.name;
-            select.appendChild(option);
-        });
+            // Limpa tudo e adiciona a primeira opção
+            select.innerHTML = `<option value="">Nenhum teclado selecionado</option>`;
 
-        this.renderKeyboardKeys();
+            // Adiciona opções baseado no array
+            this.keyboardDataToSave.forEach((keyboard, index) => {
+                const option = document.createElement("option");
+                option.value = keyboard.name; 
+                option.textContent = keyboard.name;
+                select.appendChild(option);
+            });
+
+            this.renderKeyboardKeys();
+        } else {
+            const select = document.getElementById('keyboard-select-sec');
+
+            // Limpa tudo e adiciona a primeira opção
+            select.innerHTML = `<option value="">Nenhum teclado selecionado</option>`;
+
+            // Adiciona opções baseado no array
+            this.keyboardDataToSave.forEach((keyboard, index) => {
+                const option = document.createElement("option");
+                option.value = keyboard.name; 
+                option.textContent = keyboard.name;
+                select.appendChild(option);
+            });
+
+            this.renderKeyboardKeys(0);
+        }
     }
 
     removeKeys() {
@@ -950,10 +1008,6 @@ class ControlGUI {
         });
 
         this.addLogEntry(`Caractere '${label}' salvo em (${x_pos}, ${y_pos})`, 'success');
-
-        console.log(this.keyboardDataToSave);
-        
-
         // await this.sendCommand(`SAVEPOS,${label},${x_pos},${y_pos}`);
 
         this.renderKeyboardKeys();

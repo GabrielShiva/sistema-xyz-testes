@@ -485,7 +485,7 @@ body {
     gap: 10px;
 }
 
-#keyboard-keys-container {
+#keyboard-keys-container, #keyboard-keys-container-sec {
     display: flex;
     gap: 15px;
 }
@@ -513,7 +513,7 @@ body {
     font-style: italic;
 }
 
-#keyboard-keys-container span {
+#keyboard-keys-container span, #keyboard-keys-container-sec span {
     width: 100%;
     font-size: 12px;
     font-weight: 600;

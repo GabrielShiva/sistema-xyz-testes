@@ -125,8 +125,8 @@ void parse_mode_command(const char* params);
 void parse_motors_command(const char* params);
 void parse_moveto_command(const char* params);
 void parse_setzero_command(const char* params);
+void parse_testpos_command(const char* params);
 void parse_savepos_command(const char* params);
-void parse_getpos_command(const char* params);
 void parse_recallpos_command(const char* params);
 void parse_recallstring_command(const char* params);
 void parse_home_command(const char* params);
@@ -256,10 +256,10 @@ int main (void) {
                 } else {
                     // Envia os dados via serial para o caso de um motores:
                     // DATA,<x_reading>,<y_reading>,<motor_0_dir>,<motor_0_speed>
-                    // printf("DATA,%u,%u,%d,0,%.1f,0.0\n",
-                    //        x_reading, y_reading,
-                    //        steppers[0].dir,
-                    //        steppers[0].actual_step_interval);
+                    printf("DATA,%u,%u,%d,0,%.1f,0.0\n",
+                           x_reading, y_reading,
+                           steppers[0].dir,
+                           steppers[0].actual_step_interval);
                 }
 
                 last_x_reading = x_reading;
@@ -271,14 +271,14 @@ int main (void) {
             }
         } else {
             // In command mode, send minimal data or status
-            // printf("DATA,0,0,0,0,0.0,0.0\n"); // Or comment this out if no data needed
+            printf("DATA,0,0,0,0,0.0,0.0\n"); // Or comment this out if no data needed
         }
 
         // Envia atualizações de estado do sistema
         static int position_update_counter = 0;
         if (++position_update_counter >= 60) {
-            // send_position_update();
-            // send_homing_status();
+            send_position_update();
+            send_homing_status();
             position_update_counter = 0;
         }
 
@@ -847,6 +847,13 @@ void handle_command(const char* command) {
         }
         parse_moveto_command(command + 7);
     }
+    else if (strncmp(command, "TESTPOS,", 8) == 0) {
+        if (current_state != STATE_COMMAND) {
+            printf("ERROR,Nao pode posicionar no modo joystick\n");
+            return;
+        }
+        parse_testpos_command(command + 8);
+    }
     else if (strncmp(command, "HOME", 4) == 0) {
         if (current_state == STATE_JOYSTICK) {
             printf("ERROR,Nao pode executar homing no modo joystick\n");
@@ -860,9 +867,6 @@ void handle_command(const char* command) {
     }
     else if (strncmp(command, "SAVEPOS,", 8) == 0) {
         parse_savepos_command(command + 8);
-    }
-    else if (strncmp(command, "GETPOS,", 7) == 0) {
-        parse_getpos_command(command + 7);
     }
     else if (strncmp(command, "RECALLPOS,", 10) == 0) {
         if (current_state != STATE_COMMAND) {
@@ -1273,45 +1277,6 @@ void parse_savepos_command(const char* params) {
     free(param_copy);
 }
 
-void parse_getpos_command(const char* params) {
-    char* param_copy = malloc(strlen(params) + 1);
-    strcpy(param_copy, params);
-
-    char* x_param = strtok(NULL, ",");
-    char* y_param = strtok(NULL, ",");
-
-    int32_t x_pos = atoi(x_param);
-    int32_t y_pos = atoi(y_param);
-
-    int index = find_saved_position_index(character);
-
-    if (index == -1) {
-        for (int i = 0; i < MAX_SAVED_POSITIONS; i++) {
-            if (!saved_positions[i].is_used) {
-                index = i;
-                break;
-            }
-        }
-    }
-
-    if (index == -1) {
-        printf("ERROR,Memoria de posicoes cheia (maximo %d posicoes)\n", MAX_SAVED_POSITIONS);
-        free(param_copy);
-        return;
-    }
-
-    // Salava as coordenadas no array
-    saved_positions[index].character = character;
-    saved_positions[index].x_position = x_pos;
-    saved_positions[index].y_position = y_pos;
-    saved_positions[index].is_used = true;
-
-    printf("ACK,Posicao '%c' salva: X=%d, Y=%d\n", character, x_pos, y_pos);
-    send_saved_positions_update();
-
-    free(param_copy);
-}
-
 // Recupera a posição da letra especificada: RECALLPOS,<character>
 void parse_recallpos_command(const char* params) {
     if (strlen(params) != 1) {
@@ -1426,6 +1391,70 @@ void parse_recallpos_command(const char* params) {
     printf("ACK,Finalizaou movimento\n");
     // printf("ACK,valor recebido = %c\n", caracter);
     send_position_update();
+}
+
+void parse_testpos_command(const char* params) {
+    char* param_copy = malloc(strlen(params) + 1);
+    strcpy(param_copy, params);
+
+    char* x_param = strtok(NULL, ",");
+    char* y_param = strtok(NULL, ",");
+
+    if (!x_param || !y_param) {
+        printf("ERROR,Parametros insuficientes para TESTPOS. Formato: x_pos,y_pos\n");
+        free(param_copy);
+        return;
+    }
+
+    int32_t target_x = atoi(x_param);
+    int32_t target_y = atoi(y_param);
+
+    printf("ACK,Movendo para posicao X=%d, Y=%d\n", target_x, target_y);
+
+    // Para todos os motores antes de mover
+    stop_all_motors();
+    sleep_ms(10);
+
+    uint32_t start_time = to_ms_since_boot(get_absolute_time());
+
+    // Move motor 0 (eixo x)
+    // Realiza a diferença entre a posição atual do motor e a desejada
+    stepper_motor_t *motor0 = &steppers[0];
+    int32_t steps_x = target_x - (int32_t)motor0->step_position;
+    if (steps_x != 0) {
+        move_n_steps(motor0, steps_x);
+    }
+
+    while (motor0->alarm_active && !motor0->movement_done) {
+        sleep_ms(1);
+        if (to_ms_since_boot(get_absolute_time()) - start_time > 30000) {
+            printf("ERROR,Timeout esperando motores X/Y\n");
+            stop_all_motors();
+            return;
+        }
+    }
+
+    sleep_ms(5);
+
+    // Move motor 1 (eixo y)
+    if (active_motor_count >= 2) {
+        stepper_motor_t *motor1 = &steppers[1];
+        int32_t steps_y = target_y - (int32_t)motor1->step_position;
+        if (steps_y != 0) {
+            move_n_steps(motor1, steps_y);
+        }
+
+        while (motor1->alarm_active && !motor1->movement_done) {
+            sleep_ms(1);
+            if (to_ms_since_boot(get_absolute_time()) - start_time > 30000) {
+                printf("ERROR,Timeout esperando motores X/Y\n");
+                stop_all_motors();
+                return;
+            }
+        }
+    }
+
+    printf("ACK,Terminou o movimento\n");
 }
 
 // Recupera os caracteres que compõem a string: RECALLSTRING,<texto>
