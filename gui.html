@@ -1,0 +1,296 @@
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dual Axis Stepper Motor Control with Homing</title>
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <link rel="stylesheet" href="gui_style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="control-panel control-panel-disconected">
+            <div id="control-panel-header">
+                <div class="section section-active">
+                    <div class="section-content">
+                        <div class="status-line">
+                            <span class="status-indicator" id="state-indicator"></span>
+                            <div style="display: flex; flex-direction: column;">
+                                <span style="font-weight: bold;">Modo de Operação:</span>
+                                <span id="state-text">---</span>
+                            </div>
+                        </div>
+                        <div>
+                            <button class="button" id="joystick-mode-btn">Modo de Mapeamento</button>
+                            <button class="button" id="command-mode-btn">Modo de Comando</button>
+                            <button class="button" id="homming-mode-btn">Modo de Homing</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section section-active">
+                    <!-- <div class="section-header">Conexão</div> -->
+                    <div class="section-content">
+                        <div class="status-line">
+                            <span class="status-indicator" id="connection-status"></span>
+                             <div style="display: flex; flex-direction: column;">
+                                <span style="font-weight: bold;">Estado de Conexão:</span>
+                                <span id="connection-text">Desconectado</span>
+                            </div>
+                        </div>
+                        <div>
+                            <button class="button primary" id="connect-btn">Conectar</button>
+                            <button class="button danger" id="disconnect-btn" disabled>Desconectar</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="info-block info-block-active">Conecte-se com a placa de controle!</div>
+            
+            <div class="control-panel-content">
+                <div class="left-panel">
+                    <div class="section" id="joystick-readings">
+                        <div class="section-header">Leitura do Joystick</div>
+                        <div class="section-content">
+                            <div class="data-item">
+                                <div class="data-item-content">
+                                    <div class="data-label axis-color-x">Eixo X</div>
+                                    <div class="data-value" id="joystick-x-value">0</div>
+                                </div>
+                                <div class="data-item-chart">
+                                    <div id="chart-joystick-x"></div>
+                                </div>
+                            </div>
+                            <div class="data-item">
+                                <div class="data-item-content">
+                                    <div class="data-label axis-color-y">Eixo Y</div>
+                                    <div class="data-value" id="joystick-y-value">0</div>
+                                </div>
+                                <div class="data-item-chart">
+                                    <div id="chart-joystick-y"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="section" id="axis-readings">
+                        <div class="section-header">Eixos</div>
+                        <div class="section-content">
+                            <div class="data-grid">
+                                <div class="data-item">
+                                    <div class="data-label axis-color-x">Eixo X (Direção)</div>
+                                    <div class="data-value" id="motor0-dir-value">0</div>
+                                </div>
+                                <div class="data-item">
+                                    <div class="data-label axis-color-y">Eixo Y (Direção)</div>
+                                    <div class="data-value" id="motor1-dir-value">0</div>
+                                </div>
+                            </div>
+                            <div class="data-grid">
+                                <div class="data-item">
+                                    <div class="data-label axis-color-x">Eixo X - Intervalo (μs)</div>
+                                    <div class="data-value" id="motor0-interval-value">0.0</div>
+                                </div>
+                                <div class="data-item">
+                                    <div class="data-label axis-color-y">Eixo Y - Intervalo (μs)</div>
+                                    <div class="data-value" id="motor1-interval-value">0.0</div>
+                                </div>
+                                <div class="data-item">
+                                    <div class="data-label axis-color-x">Eixo X - Velocidade (Hz)</div>
+                                    <div class="data-value" id="motor0-speed-value">0</div>
+                                </div>
+                                <div class="data-item">
+                                    <div class="data-label axis-color-y">Eixo Y - Velocidade (Hz)</div>
+                                    <div class="data-value" id="motor1-speed-value">0</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="section" id="log-readings">
+                        <div class="section-header">Log do Sistema</div>
+                        <div class="section-content">
+                            <div class="log-container" id="log-container"></div>
+                            <button class="button" id="clear-log-btn" style="margin-top: 10px;">Limpar Log</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="right-panel">
+                    <div class="section" id="homing-section">
+                        <div class="section-header">Homing do Sistema</div>
+                        <div class="section-content">
+                            <div class="homing-status-grid" id="homing-status-grid"></div>
+                            <div class="quick-actions" style="margin-top: 15px;">
+                                <button class="button warning" id="home-all-btn">Referenciar Todos</button>
+                                <button class="button" id="home-x-btn">Referenciar Eixo X</button>
+                                <button class="button" id="home-y-btn">Referenciar Eixo Y</button>
+                                <button class="button" id="home-z-btn">Referenciar Eixo Z</button>
+                                <!-- <button class="button danger" id="emergency-homing-stop-btn">Parada de Emergência</button> -->
+                            </div>
+                            <div class="input-group" style="margin-top: 10px;">
+                                <label class="input-label" style="color: #ff9800;">⚠ O homing moverá os motores até o fim de curso. Verifique se o caminho está livre!</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="section" id="new-keyboard-section">
+                        <div class="section-header">Novo Teclado</div>
+                        <div class="section-content">
+                            <!-- Gerenciamento de Teclados -->
+                            <div id="keyboard-management-section">
+                                <div>
+                                    <label class="input-label">Identificador</label>
+                                    <input type="text" class="input" id="keyboard-name-input" maxlength="30" placeholder="ex.: Logitech-ACK300-U1">
+                                    <button class="button primary" id="add-keyboard-btn">Adicionar Teclado</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="section" id="new-positions-section">
+                        <div class="section-header">Novas Teclas</div>
+                        <div class="section-content">
+                            <!-- Gerenciamento de Posições -->
+                            <div id="position-management-section">
+                                <div>
+                                    <label class="input-label">Teclado</label>
+                                    <select class="input" id="keyboard-select">
+                                        <option value="">Nenhum teclado selecionado</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label class="input-label">Tecla (letra/número)</label>
+                                    <input type="text" class="input" id="position-label-input" maxlength="1" placeholder="ex.: a">
+                                    <button class="button primary" id="save-position-btn" disabled>Adicionar Posição</button>
+                                </div>
+                                
+     
+                                <label class="input-label" style="margin-top: 20px;">Posições Salvas do Teclado</label>
+                                <div id="keyboard-keys-container">
+                                    <span>Nenhuma posição salva!</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="section" id="keyboard-test-section">
+                        <div class="section-header">Teste</div>
+                        <div class="section-content">
+                            <!-- Gerenciamento de Posições -->
+                            <div id="position-management-section">
+                                <div>
+                                    <label class="input-label">Teclado</label>
+                                    <select class="input" id="keyboard-select">
+                                        <option value="">Nenhum teclado selecionado</option>
+                                    </select>
+                                </div>                                
+     
+                                <label class="input-label" style="margin-top: 20px;">Posições Salvas do Teclado</label>
+                                <div id="keyboard-keys-container">
+                                    <span>Nenhuma posição salva!</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- <div class="section">
+                        <div class="section-header">Memória de Posições</div>
+                        <div class="section-content">
+                            <label class="input-label">Rótulo da Posição</label>
+                            <input type="text" class="input" id="position-label-input" maxlength="1" placeholder="ex.: a">
+                            <div class="quick-actions">
+                                <button class="button primary" id="save-position-btn">Salvar Posição</button>
+                                <button class="button" id="recall-position-btn">Recuperar</button>
+                                <button class="button" id="test-all-positions-btn">Testar Posições</button>
+                                <button class="button danger" id="clear-positions-btn">Limpar</button>
+                                <input type="text" class="input" id="string-input" placeholder="Insira a palavra aqui">
+                                <button class="button" id="send-string-btn">Reproduzir palavra</button>
+                            </div>
+                            <label class="input-label">Posições Salvas</label>
+                            <div class="log-container" id="saved-positions-container" style="height: 80px; font-size: 10px;">
+                                <div class="log-entry" style="color: #999;">Nenhuma posição salva...</div>
+                            </div>
+                        </div>
+                    </div> -->
+
+                    <div class="section">
+                        <div class="section-header">Controle de Posição</div>
+                        <div class="section-content">
+                            <div class="position-display-grid" id="position-display-grid">
+                            </div>
+
+                            <div class="dual-motor-grid">
+                                <div class="motor-control-group">
+                                    <div class="motor-control-header axis-color-x">Motor 0 (Eixo X)</div>
+                                    <div class="input-group">
+                                        <label class="input-label">Posição Desejada</label>
+                                        <input type="number" class="input" id="motor0-position-input" placeholder="Enter position" value="0">
+                                    </div>
+                                </div>
+                                <div class="motor-control-group">
+                                    <div class="motor-control-header axis-color-y">Motor 1 (Eixo Y)</div>
+                                    <div class="input-group">
+                                        <label class="input-label">Posição Desejada</label>
+                                        <input type="number" class="input" id="motor1-position-input" placeholder="Insira a posição" value="0">
+                                    </div>
+                                </div>
+                                <div class="motor-control-group">
+                                    <div class="motor-control-header axis-color-y">Motor 2 (Eixo Z)</div>
+                                    <div class="input-group">
+                                        <label class="input-label">Posição Desejada</label>
+                                        <input type="number" class="input" id="motor2-position-input" placeholder="Insira a posição" value="0">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Movement Control Buttons -->
+                            <div class="input-group" style="margin-top: 15px;">
+                                <label class="input-label">
+                                    <input type="checkbox" id="wait-completion-checkbox" checked style="margin-right: 5px;">
+                                    Aguardar conclusão
+                                </label>
+                            </div>
+
+                            <div class="quick-actions">
+                                <button class="button primary" id="move-both-btn">Mover Ambos</button>
+                                <button class="button" id="move-motor0-btn">Mover Motor 0</button>
+                                <button class="button" id="move-motor1-btn">Mover Motor 1</button>
+                                <button class="button" id="move-motor2-btn">Mover Motor 2</button>
+                            </div>
+
+                            <div class="quick-actions">
+                                <button class="button" id="set-zero-all-btn">Zerar Todos os Motores</button>
+                                <button class="button" id="set-zero-motor0-btn">Zerar Motor 0</button>
+                                <button class="button" id="set-zero-motor1-btn">Zerar Motor 1</button>
+                                <button class="button" id="set-zero-motor2-btn">Zerar Motor 2</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">Controle Manual</div>
+                        <div class="section-content">
+                            <label class="input-label">Motor</label>
+                            <select class="input" id="motor-id-select">
+                                <option value="0">Motor 0 (X)</option>
+                                <option value="1">Motor 1 (Y)</option>
+                                <option value="2">Motor 2 (Z)</option>
+                            </select>
+                            <label class="input-label">Passos</label>
+                            <input type="number" class="input" id="steps-input" value="100">
+                            <label class="input-label">Velocidade (μs)</label>
+                            <input type="number" class="input" id="speed-input" value="1000">
+                            <button class="button" id="move-forward-btn">Mover Frente</button>
+                            <button class="button" id="move-backward-btn">Mover Trás</button>
+                            <button class="button" id="set-speed-btn">Definir Velocidade</button>
+                            <button class="button danger" id="emergency-stop-btn">Parada de Emergência</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="gui_script.js"></script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+[
+    {
+        "name": "Logi-01",
+        "keys": [
+            { "character": "a", "xPos": 23423, "yPos": 344 },
+            { "character": "b", "xPos": 2343, "yPos": 784 }
+        ]
+    },
+    {
+        "name": "Logi-05",
+        "keys": [
+            { "character": "h", "xPos": 554, "yPos": 379 },
+            { "character": "x", "xPos": 776, "yPos": 567 }
+        ]
+    }
+]

@@ -1026,7 +1026,7 @@
                 const steps = parseInt(document.getElementById('steps-input').value) || 100;
                 await this.sendCommand(`MOVE,${motorId},${-steps}`);
             }
-
+            
             async setSpeed() {
                 const speed = parseInt(document.getElementById('speed-input').value) || 1000;
                 await this.sendCommand(`SPEED,${speed}`);

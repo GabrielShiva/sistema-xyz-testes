@@ -1,5 +1,5 @@
 {
-    "editor.lineHeight": 19,
+    "editor.lineHeight": 20,
     "cmake.showSystemKits": false,
     "cmake.options.statusBarVisibility": "hidden",
     "cmake.options.advanced": {
@@ -42,6 +42,7 @@
         "cstdint": "c",
         "compare": "c",
         "format": "c",
-        "cstdlib": "c"
+        "cstdlib": "c",
+        "string.h": "c"
     }
 }

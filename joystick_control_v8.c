@@ -13,8 +13,10 @@
 #define LED_PIN        25
 
 // JOYSTICK PINOUT
-#define JOYSTICK_X_PIN 27
-#define JOYSTICK_Y_PIN 28
+#define JOYSTICK_X_PIN 27 // channel 1
+#define JOYSTICK_Y_PIN 28 // channel 2
+#define JOYSTICK_X_CHANNEL 1
+#define JOYSTICK_Y_CHANNEL 2
 
 // LIMIT SWITCH PINOUT
 #define LIMIT_SWITCH_X_PIN 10
@@ -91,7 +93,7 @@ uint16_t joystick_x_center = 2048;
 uint16_t joystick_y_center = 2048;
 
 // Define o estado atual do sistema e a quantidade de motores ativos no momento
-system_state_t current_state = STATE_JOYSTICK;
+system_state_t current_state = STATE_COMMAND;
 uint8_t active_motor_count = 3; // define o numero de motores ligados
 
 // Define os parâmetros de homing
@@ -124,6 +126,7 @@ void parse_motors_command(const char* params);
 void parse_moveto_command(const char* params);
 void parse_setzero_command(const char* params);
 void parse_savepos_command(const char* params);
+void parse_getpos_command(const char* params);
 void parse_recallpos_command(const char* params);
 void parse_recallstring_command(const char* params);
 void parse_home_command(const char* params);
@@ -160,6 +163,13 @@ int main (void) {
     adc_gpio_init(JOYSTICK_X_PIN);
     adc_gpio_init(JOYSTICK_Y_PIN);
 
+    // Calibração inicial do joystick: lê 100 amostras e define o centro
+    // Nesse momento, o joystick não deve ser movido    joystick_x_center = read_joystick_average(0, NUM_CAL_SAMPLES, CAL_SAMPLE_DELAY_MS);
+    joystick_x_center = read_joystick_average(JOYSTICK_X_CHANNEL, NUM_CAL_SAMPLES, CAL_SAMPLE_DELAY_MS);
+    printf("Centro - Joystick X  (media para %d amostras) = %u\n", NUM_CAL_SAMPLES, joystick_x_center);
+    joystick_y_center = read_joystick_average(JOYSTICK_Y_CHANNEL, NUM_CAL_SAMPLES, CAL_SAMPLE_DELAY_MS);
+    printf("Centro - Joystick Y (media para %d amostras) = %u\n", NUM_CAL_SAMPLES, joystick_y_center);
+
     // Inicializa o LED do raspberry
     gpio_init(LED_PIN); gpio_set_dir(LED_PIN, GPIO_OUT); gpio_put(LED_PIN, 0);
 
@@ -179,14 +189,7 @@ int main (void) {
     }
 
     // Delay para dar tempo de ligar o serial
-    sleep_ms(5000);
-
-    // Calibração inicial do joystick: lê 100 amostras e define o centro
-    // Nesse momento, o joystick não deve ser movido    joystick_x_center = read_joystick_average(0, NUM_CAL_SAMPLES, CAL_SAMPLE_DELAY_MS);
-    joystick_x_center = read_joystick_average(0, NUM_CAL_SAMPLES, CAL_SAMPLE_DELAY_MS);
-    printf("Centro - Joystick X  (media para %d amostras) = %u\n", NUM_CAL_SAMPLES, joystick_x_center);
-    joystick_y_center = read_joystick_average(1, NUM_CAL_SAMPLES, CAL_SAMPLE_DELAY_MS);
-    printf("Centro - Joystick Y (media para %d amostras) = %u\n", NUM_CAL_SAMPLES, joystick_y_center);
+    sleep_ms(4000);
 
     printf("Iniciando 2 motores...\n");
 
@@ -204,20 +207,6 @@ int main (void) {
     send_saved_positions_update();
     send_homing_status();
 
-    // uart_init(uart1, 115200);
-
-    // gpio_set_function(UART_TX, GPIO_FUNC_UART);
-    // gpio_set_function(UART_RX, GPIO_FUNC_UART);
-
-    // stepper_motor_t *motory = &steppers[0];
-    // stepper_motor_t *motorz = &steppers[1];
-
-    // stepper_motor_t *motor2 = &steppers[2];
-    // motor2->initial_step_interval  = 8000.0f;
-    // motor2->actual_step_interval   = motor2->initial_step_interval;
-    // motor2->half_period_interval   = motor2->actual_step_interval * 0.5f;
-    // motor2->max_speed              = 8000;
-
     while (true) {
         // Processa os dados vindos via serial (dados enviados pela interface)
         process_serial_input();
@@ -233,9 +222,9 @@ int main (void) {
         // Se o estado do sistema for JOYSTICK
         if (current_state == STATE_JOYSTICK) {
             // Realiza a leitura dos eixos x e y
-            adc_select_input(0);
+            adc_select_input(JOYSTICK_X_CHANNEL);
             uint16_t x_reading = adc_read();
-            adc_select_input(1);
+            adc_select_input(JOYSTICK_Y_CHANNEL);
             uint16_t y_reading = adc_read();
 
             // Controla o motor 0
@@ -267,10 +256,10 @@ int main (void) {
                 } else {
                     // Envia os dados via serial para o caso de um motores:
                     // DATA,<x_reading>,<y_reading>,<motor_0_dir>,<motor_0_speed>
-                    printf("DATA,%u,%u,%d,0,%.1f,0.0\n",
-                           x_reading, y_reading,
-                           steppers[0].dir,
-                           steppers[0].actual_step_interval);
+                    // printf("DATA,%u,%u,%d,0,%.1f,0.0\n",
+                    //        x_reading, y_reading,
+                    //        steppers[0].dir,
+                    //        steppers[0].actual_step_interval);
                 }
 
                 last_x_reading = x_reading;
@@ -282,14 +271,14 @@ int main (void) {
             }
         } else {
             // In command mode, send minimal data or status
-            printf("DATA,0,0,0,0,0.0,0.0\n"); // Or comment this out if no data needed
+            // printf("DATA,0,0,0,0,0.0,0.0\n"); // Or comment this out if no data needed
         }
 
         // Envia atualizações de estado do sistema
         static int position_update_counter = 0;
         if (++position_update_counter >= 60) {
-            send_position_update();
-            send_homing_status();
+            // send_position_update();
+            // send_homing_status();
             position_update_counter = 0;
         }
 
@@ -363,7 +352,6 @@ void configure_z_axis_speed(stepper_motor_t *motor_z) {
     motor_z->actual_step_interval = motor_z->initial_step_interval;
     motor_z->half_period_interval = motor_z->actual_step_interval * 0.5f;
 }
-
 
 // Callback para computar a largura do pulso enviado para o pino STEP do driver do motor
 int64_t alarm_irq_handler(alarm_id_t id, void *user_data) {
@@ -826,6 +814,13 @@ void handle_command(const char* command) {
             return;
         }
         parse_move_command(command + 5);
+    } 
+    else if (strncmp(command, "START_CONN", 10) == 0) {
+        // Envia o estado do sistema e a posição atual para a interface (INICIALIZAÇÃO DA INTERFACE)
+        send_state_update();
+        send_position_update();
+        send_saved_positions_update();
+        send_homing_status();
     }
     else if (strncmp(command, "SPEED,", 6) == 0) {
         if (current_state != STATE_COMMAND) {
@@ -835,6 +830,7 @@ void handle_command(const char* command) {
         parse_speed_command(command + 6);
     }
     else if (strcmp(command, "STOP") == 0) {
+        current_state = STATE_COMMAND;
         stop_all_motors();
         printf("ACK,Parada de emergencia executada\n");
     }
@@ -864,6 +860,9 @@ void handle_command(const char* command) {
     }
     else if (strncmp(command, "SAVEPOS,", 8) == 0) {
         parse_savepos_command(command + 8);
+    }
+    else if (strncmp(command, "GETPOS,", 7) == 0) {
+        parse_getpos_command(command + 7);
     }
     else if (strncmp(command, "RECALLPOS,", 10) == 0) {
         if (current_state != STATE_COMMAND) {
@@ -991,6 +990,7 @@ void parse_speed_command(const char* params) {
 
 // Define o modo do sistema: MODE,JOYSTICK ou MODE,COMMAND
 void parse_mode_command(const char* params) {
+    printf("ACK,modo novo\n");
     if (strcmp(params, "JOYSTICK") == 0) {
         if (current_state != STATE_JOYSTICK) {
             stop_all_motors();
@@ -1004,6 +1004,14 @@ void parse_mode_command(const char* params) {
             stop_all_motors();
             current_state = STATE_COMMAND;
             printf("ACK,Alterado para o modo de COMANDO\n");
+            send_state_update();
+        }
+    }
+    else if (strcmp(params, "HOMING") == 0) {
+        if (current_state != STATE_HOMING) {
+            stop_all_motors();
+            current_state = STATE_HOMING;
+            printf("ACK,Alterado para o modo de HOMING\n");
             send_state_update();
         }
     }
@@ -1235,6 +1243,45 @@ void parse_savepos_command(const char* params) {
         free(param_copy);
         return;
     }
+
+    int index = find_saved_position_index(character);
+
+    if (index == -1) {
+        for (int i = 0; i < MAX_SAVED_POSITIONS; i++) {
+            if (!saved_positions[i].is_used) {
+                index = i;
+                break;
+            }
+        }
+    }
+
+    if (index == -1) {
+        printf("ERROR,Memoria de posicoes cheia (maximo %d posicoes)\n", MAX_SAVED_POSITIONS);
+        free(param_copy);
+        return;
+    }
+
+    // Salava as coordenadas no array
+    saved_positions[index].character = character;
+    saved_positions[index].x_position = x_pos;
+    saved_positions[index].y_position = y_pos;
+    saved_positions[index].is_used = true;
+
+    printf("ACK,Posicao '%c' salva: X=%d, Y=%d\n", character, x_pos, y_pos);
+    send_saved_positions_update();
+
+    free(param_copy);
+}
+
+void parse_getpos_command(const char* params) {
+    char* param_copy = malloc(strlen(params) + 1);
+    strcpy(param_copy, params);
+
+    char* x_param = strtok(NULL, ",");
+    char* y_param = strtok(NULL, ",");
+
+    int32_t x_pos = atoi(x_param);
+    int32_t y_pos = atoi(y_param);
 
     int index = find_saved_position_index(character);
 
