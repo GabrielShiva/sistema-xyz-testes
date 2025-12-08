@@ -9,8 +9,17 @@
     {
         "name": "Logi-05",
         "keys": [
-            { "character": "h", "xPos": 554, "yPos": 379 },
-            { "character": "x", "xPos": 776, "yPos": 567 }
+            { "character": "a", "xPos": 554, "yPos": 379 },
+            { "character": "b", "xPos": 776, "yPos": 567 },
+            { "character": "c", "xPos": 776, "yPos": 567 },
+            { "character": "d", "xPos": 776, "yPos": 567 },
+            { "character": "e", "xPos": 776, "yPos": 567 },
+            { "character": "f", "xPos": 776, "yPos": 567 },
+            { "character": "g", "xPos": 776, "yPos": 567 },
+            { "character": "h", "xPos": 776, "yPos": 567 },
+            { "character": "i", "xPos": 776, "yPos": 567 },
+            { "character": "j", "xPos": 776, "yPos": 567 },
+            { "character": "k", "xPos": 776, "yPos": 567 }
         ]
     }
 ]

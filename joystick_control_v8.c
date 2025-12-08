@@ -104,6 +104,7 @@ uint8_t active_motor_count = 3; // define o numero de motores ligados
 // Declaração de funções
 // Controle dos motores
 int64_t alarm_irq_handler(alarm_id_t id, void *user_data);
+void joystick_state_handler();
 void init_stepper_motor(stepper_motor_t *motor);
 void move_n_steps(stepper_motor_t *motor, int32_t steps);
 void move_to_position(stepper_motor_t *motor, int32_t target, bool wait);
@@ -188,104 +189,95 @@ int main (void) {
         init_stepper_motor(&steppers[i]);
     }
 
-    // Delay para dar tempo de ligar o serial
-    sleep_ms(4000);
-
-    printf("Iniciando 2 motores...\n");
-
-    saved_positions[0] = (saved_position_t){ .character = 'a', .x_position = 25003, .y_position = 2287, .is_used = true };
-    saved_positions[1] = (saved_position_t){ .character = 'b', .x_position = 1051, .y_position = 1579, .is_used = true };
-    saved_positions[2] = (saved_position_t){ .character = 'c', .x_position = 2818, .y_position = 2109, .is_used = true };
-    saved_positions[3] = (saved_position_t){ .character = 'd', .x_position = 0, .y_position = 2195, .is_used = true };
-    saved_positions[4] = (saved_position_t){ .character = 'e', .x_position = 4147, .y_position = 955, .is_used = true };
-    saved_positions[5] = (saved_position_t){ .character = 'n', .x_position = 14400, .y_position = 670, .is_used = true };
-    saved_positions[6] = (saved_position_t){ .character = 'i', .x_position = 12318, .y_position = 4409, .is_used = true };
-
-    // Envia o estado do sistema e a posição atual para a interface (INICIALIZAÇÃO DA INTERFACE)
-    send_state_update();
-    send_position_update();
-    send_saved_positions_update();
-    send_homing_status();
+    uint32_t last_time = 0;
 
     while (true) {
         // Processa os dados vindos via serial (dados enviados pela interface)
         process_serial_input();
 
-        // Se o comando foi processado, lidar com o comando
-        if (command_ready) {
-            // Executa a função relacionada ao comando
-            handle_command(command_buffer);
-            command_buffer_pos = 0;
-            command_ready = false;
+        switch (current_state) {
+            case STATE_COMMAND || STATE_HOMING:
+                if (command_ready) {
+                    // Executa a função relacionada ao comando
+                    handle_command(command_buffer);
+                    command_buffer_pos = 0;
+                    command_buffer[0] = '\0';
+                    command_ready = false;
+                }
+                break;
+            case STATE_JOYSTICK:
+                joystick_state_handler();
+                break;
+            default:
+                break;
         }
 
-        // Se o estado do sistema for JOYSTICK
-        if (current_state == STATE_JOYSTICK) {
-            // Realiza a leitura dos eixos x e y
-            adc_select_input(JOYSTICK_X_CHANNEL);
-            uint16_t x_reading = adc_read();
-            adc_select_input(JOYSTICK_Y_CHANNEL);
-            uint16_t y_reading = adc_read();
+        uint32_t time_now = to_ms_since_boot(get_absolute_time());
+        if (time_now - last_time >= 1000) {
+            last_time = time_now;
 
-            // Controla o motor 0
-            control_motor_from_joystick(&steppers[0], x_reading, joystick_x_center);
-
-            // Caso dois motores estiverem ativos, executar o segundo motor
-            if (active_motor_count >= 2) {
-                control_motor_from_joystick(&steppers[1], y_reading, joystick_y_center);
-            }
-
-            // Envia os dados lidos pelo joystick para a interface (Apenas se eles mudaram)
-            static uint16_t last_x_reading = 0;
-            static uint16_t last_y_reading = 0;
-            static float last_x_interval = 0;
-            static float last_y_interval = 0;
-
-            if (abs((int)x_reading - (int)last_x_reading) > 10 ||
-                abs((int)y_reading - (int)last_y_reading) > 10 ||
-                fabs(steppers[0].actual_step_interval - last_x_interval) > 50.0f ||
-                (active_motor_count >= 2 && fabs(steppers[1].actual_step_interval - last_y_interval) > 50.0f)) {
-
-                if (active_motor_count >= 2) {
-                    // Envia os dados via serial para o caso de dois motores:
-                    // DATA,<x_reading>,<y_reading>,<motor_0_dir>,<motor_1_dir>,<motor_0_speed>,<motor_1_speed>
-                    printf("DATA,%u,%u,%d,%d,%.1f,%.1f\n",
-                           x_reading, y_reading,
-                           steppers[0].dir, steppers[1].dir,
-                           steppers[0].actual_step_interval, steppers[1].actual_step_interval);
-                } else {
-                    // Envia os dados via serial para o caso de um motores:
-                    // DATA,<x_reading>,<y_reading>,<motor_0_dir>,<motor_0_speed>
-                    printf("DATA,%u,%u,%d,0,%.1f,0.0\n",
-                           x_reading, y_reading,
-                           steppers[0].dir,
-                           steppers[0].actual_step_interval);
-                }
-
-                last_x_reading = x_reading;
-                last_y_reading = y_reading;
-                last_x_interval = steppers[0].actual_step_interval;
-                if (active_motor_count >= 2) {
-                    last_y_interval = steppers[1].actual_step_interval;
-                }
-            }
-        } else {
-            // In command mode, send minimal data or status
-            printf("DATA,0,0,0,0,0.0,0.0\n"); // Or comment this out if no data needed
-        }
-
-        // Envia atualizações de estado do sistema
-        static int position_update_counter = 0;
-        if (++position_update_counter >= 60) {
+            send_state_update();
             send_position_update();
-            send_homing_status();
-            position_update_counter = 0;
+            if (current_state == STATE_HOMING) {
+                send_homing_status();
+            }
         }
 
         sleep_ms(25);
     }
 
     return 0;
+}
+
+void joystick_state_handler() {
+    // Realiza a leitura dos eixos x e y
+    adc_select_input(JOYSTICK_X_CHANNEL);
+    uint16_t x_reading = adc_read();
+    adc_select_input(JOYSTICK_Y_CHANNEL);
+    uint16_t y_reading = adc_read();
+
+    // Controla o motor 0
+    control_motor_from_joystick(&steppers[0], x_reading, joystick_x_center);
+
+    // Caso dois motores estiverem ativos, executar o segundo motor
+    if (active_motor_count >= 2) {
+        control_motor_from_joystick(&steppers[1], y_reading, joystick_y_center);
+    }
+
+    // Envia os dados lidos pelo joystick para a interface (Apenas se eles mudaram)
+    static uint16_t last_x_reading = 0;
+    static uint16_t last_y_reading = 0;
+    static float last_x_interval = 0;
+    static float last_y_interval = 0;
+
+    if (abs((int)x_reading - (int)last_x_reading) > 10 ||
+        abs((int)y_reading - (int)last_y_reading) > 10 ||
+        fabs(steppers[0].actual_step_interval - last_x_interval) > 50.0f ||
+        (active_motor_count >= 2 && fabs(steppers[1].actual_step_interval - last_y_interval) > 50.0f)) {
+
+        if (active_motor_count >= 2) {
+            // Envia os dados via serial para o caso de dois motores:
+            // DATA,<x_reading>,<y_reading>,<motor_0_dir>,<motor_1_dir>,<motor_0_speed>,<motor_1_speed>
+            printf("DATA,%u,%u,%d,%d,%.1f,%.1f\n",
+                    x_reading, y_reading,
+                    steppers[0].dir, steppers[1].dir,
+                    steppers[0].actual_step_interval, steppers[1].actual_step_interval);
+        } else {
+            // Envia os dados via serial para o caso de um motores:
+            // DATA,<x_reading>,<y_reading>,<motor_0_dir>,<motor_0_speed>
+            printf("DATA,%u,%u,%d,0,%.1f,0.0\n",
+                    x_reading, y_reading,
+                    steppers[0].dir,
+                    steppers[0].actual_step_interval);
+        }
+
+        last_x_reading = x_reading;
+        last_y_reading = y_reading;
+        last_x_interval = steppers[0].actual_step_interval;
+        if (active_motor_count >= 2) {
+            last_y_interval = steppers[1].actual_step_interval;
+        }
+    }
 }
 
 void execute_z_press_fixed(stepper_motor_t *motor_z) {
@@ -693,7 +685,7 @@ bool home_all_motors(void) {
 // Envia o status do processo de HOMING dos motores
 void send_homing_status(void) {
     printf("HOMING_STATUS");
-    for (uint i = 0; i < active_motor_count && i < 3; i++) {
+    for (uint i = 0; i < active_motor_count; i++) {
         stepper_motor_t *motor = &steppers[i];
         bool limit_state = read_limit_switch(motor);
         printf(",%d,%d", motor->is_homed ? 1 : 0, limit_state ? 1 : 0);
@@ -819,7 +811,6 @@ void handle_command(const char* command) {
         // Envia o estado do sistema e a posição atual para a interface (INICIALIZAÇÃO DA INTERFACE)
         send_state_update();
         send_position_update();
-        send_saved_positions_update();
         send_homing_status();
     }
     else if (strncmp(command, "SPEED,", 6) == 0) {
@@ -1171,8 +1162,8 @@ void parse_setzero_command(const char* params) {
 // Envia a posição atual dos motores via serial
 void send_position_update(void) {
     printf("POSITION");
-    for (uint i = 0; i < active_motor_count && i < 3; i++) {
-        printf(",%d", (int)steppers[i].step_position);
+    for (uint i = 0; i < 2; i++) {
+        printf(",%d,%d", (int)steppers[i].step_position, steppers[i].dir, steppers[0].actual_step_interval);
     }
     printf("\n");
 }

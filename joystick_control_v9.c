@@ -214,53 +214,69 @@ int main (void) {
 
     // Espera por mensagem de conexão
     // START_CONN\n
-    while (!uart_is_readable(UART_ID))
-    {
-        tight_loop_contents();
-    }
+    // while (!uart_is_readable(UART_ID))
+    // {
+    //     tight_loop_contents();
+    // }
 
-    while (uart_is_readable(UART_ID))
-    {
-        char c = uart_getc(UART_ID);
+    // while (uart_is_readable(UART_ID))
+    // {
+    //     char c = uart_getc(UART_ID);
 
-        if (command_buffer_pos < 255) {
-            command_buffer[command_buffer_pos++] = c;
-        }
+    //     if (command_buffer_pos < 255) {
+    //         command_buffer[command_buffer_pos++] = c;
+    //     }
 
-        if (c == '\n' || c == '\r') {
-            command_buffer[command_buffer_pos] = '\0';
-            command_buffer_pos = 0;
-        }
-    }
+    //     if (c == '\n' || c == '\r') {
+    //         command_buffer[command_buffer_pos] = '\0';
+    //         command_buffer_pos = 0;
+    //     }
+    // }
 
-    if (!(strcmp(command_buffer, "START_CONN") == 0)) {
-        command_buffer_pos = 0;
-        command_buffer[0] = '\0';
-        strncpy(command_buffer, "ERROR, Falha ao conectar\n", 256);
-        uart_puts(UART_ID, command_buffer);
-    }
+    // if (!(strcmp(command_buffer, "START_CONN") == 0)) {
+    //     command_buffer_pos = 0;
+    //     command_buffer[0] = '\0';
+    //     strncpy(command_buffer, "ERROR, Falha ao conectar\n", 256);
+    //     uart_puts(UART_ID, command_buffer);
+    // }
 
-    send_state_update();
-    send_position_update();
-    send_saved_positions_update();
-    send_homing_status();
+    // send_state_update();
+    // send_position_update();
+    // send_saved_positions_update();
+    // send_homing_status();
 
+    
+    uint32_t last_time = 0;
 
     while (true) {
         // Processa os dados vindos via serial (dados enviados pela interface)
         process_uart_input();
+
+        // uint32_t time_now = to_ms_since_boot(get_absolute_time());
+        // if (time_now - last_time >= 1000) {
+        //     last_time = time_now;
+        //     // uart_putc(UART_ID, 'a');
+
+        //     send_state_update();
+        //     send_position_update();
+        //     // if (current_state == STATE_HOMING) {
+        //     //     send_homing_status();
+        //     // }
+        //     // while (true);
+        // }
 
 
         switch (current_state)
         {
             case STATE_COMMAND:
                 // Se o comando foi processado, lidar com o comando
-                if (command_ready)
+                if (command_ready) {
                     // Executa a função relacionada ao comando
                     handle_command(command_buffer);
                     command_buffer_pos = 0;
                     command_ready = false;
                     command_buffer[0] = '\0';
+                }
                 break;
             case STATE_JOYSTICK:
                 handle_joystick_state();

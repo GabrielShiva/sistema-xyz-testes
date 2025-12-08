@@ -5,33 +5,25 @@ class ControlGUI {
         this.isConnected = false;
         this.reader = null;
         
-
-        // Homing status
-        this.motorHomingStatus = [false, false, false]; // homing status for motors 0, 1, 2
-        this.limitSwitchStatus = [false, false, false]; // limit switch status for motors 0, 1, 2
+        // Homing
+        this.motorHomingStatus = [false, false, false];
+        this.limitSwitchStatus = [false, false, false];
         
         // Estado do sistema de controle
         this.previousState = 'unknown';
-        this.currentState = 'unknown';
+        this.currentState = 'command';
         this.motorCount = 3;
         this.motorPositions = [0, 0, 0];
-        this.savedPositions = []; // Array to store saved positions
+        this.savedPositions = [];
 
         this.keyboardDataToSave = [];
-
-        // ApexCharts data
-        this.chartData = [];
-        this.chartDataX = [];
-        this.chartDataY = [];
-        this.maxDataPoints = 50; // Número máximo de pontos no gráfico
     
-
         // Carrega os teclados
         this.loadKeyboardData();
         this.initializeEventListeners();
         this.updateConnectionStatus();
         this.updateStateStatus();
-        // this.initializeCharts();
+
         this.addLogEntry('Interface inicializada.', 'info');
     }
 
@@ -53,135 +45,41 @@ class ControlGUI {
 
     populateKeyboardSelect() {
         const select = document.getElementById('keyboard-select');
+        const selectSec = document.getElementById('keyboard-select-sec');
 
-        // Limpa o select e adiciona a opção padrão
-        select.innerHTML = `
-            <option value="">Nenhum teclado selecionado</option>
-        `;
+        if (select) {
+            // Limpa o select e adiciona a opção padrão
+            select.innerHTML = `
+                <option value="">Nenhum teclado selecionado</option>
+            `;
 
-        // Adiciona os teclados carregados do JSON
-        this.keyboardDataToSave.forEach(kb => {
-            const option = document.createElement('option');
-            option.value = kb.name;        // o valor é o nome do teclado
-            option.textContent = kb.name;  // o texto exibido também
-            select.appendChild(option);
-        });
+            // Adiciona os teclados carregados do JSON
+            this.keyboardDataToSave.forEach(kb => {
+                const option = document.createElement('option');
+                option.value = kb.name;        // o valor é o nome do teclado
+                option.textContent = kb.name;  // o texto exibido também
+                select.appendChild(option);
+            });
+        }
+
+        if (selectSec) {
+            // Limpa o select e adiciona a opção padrão
+            selectSec.innerHTML = `
+                <option value="">Nenhum teclado selecionado</option>
+            `;
+
+            // Adiciona os teclados carregados do JSON
+            this.keyboardDataToSave.forEach(kb => {
+                const option = document.createElement('option');
+                option.value = kb.name;        // o valor é o nome do teclado
+                option.textContent = kb.name;  // o texto exibido também
+                selectSec.appendChild(option);
+            });
+        }
 
         // Log opcional
         this.addLogEntry(`Foram carregados ${this.keyboardDataToSave.length} teclados.`, 'info');
     }
-
-    // initializeCharts() {
-    //     // Configuração do gráfico do Eixo X
-    //     let optionsX = {
-    //         chart: {
-    //             type: 'area',
-    //             animations: {
-    //                 enabled: true,
-    //                 easing: 'linear',
-    //                 dynamicAnimation: {
-    //                     speed: 100
-    //                 }
-    //             },
-    //             toolbar: {
-    //                 show: false
-    //             },
-    //             zoom: {
-    //                 enabled: false
-    //             }
-    //         },
-    //         dataLabels: {
-    //             enabled: false
-    //         },
-    //         series: [{
-    //             name: 'Joystick (X)',
-    //             data: [30,40,35,50,49,60,70,91,125,20]
-    //         }],
-    //         stroke: {
-    //             curve: 'smooth',
-    //             width: 2,
-    //             colors: ['#00a2ffff']
-    //         },
-    //         grid: {
-    //             show: false
-    //         },
-    //         xaxis: {
-    //             type: 'numeric',
-    //             range: 10,
-    //             labels: {
-    //                 show: false
-    //             },
-    //             axisBorder: {
-    //                 show: false
-    //             },
-    //             axisTicks: {
-    //                 show: false
-    //             }
-    //         },
-    //         tooltip: {
-    //             enabled: false,
-    //             theme: 'dark'
-    //         }
-    //     };
-
-    //     // // Configuração do gráfico do Eixo Y
-    //     let optionsY = {
-    //         chart: {
-    //             type: 'area',
-    //             animations: {
-    //                 enabled: true,
-    //                 easing: 'linear',
-    //                 dynamicAnimation: {
-    //                     speed: 100
-    //                 }
-    //             },
-    //             toolbar: {
-    //                 show: false
-    //             },
-    //             zoom: {
-    //                 enabled: false
-    //             }
-    //         },
-    //         dataLabels: {
-    //             enabled: false
-    //         },
-    //         series: [{
-    //             name: 'Joystick (X)',
-    //             data: [30,40,35,50,49,60,70,91,125,20]
-    //         }],
-    //         stroke: {
-    //             curve: 'smooth',
-    //             width: 2,
-    //             colors: ['#00a2ffff']
-    //         },
-    //         grid: {
-    //             show: false
-    //         },
-    //         xaxis: {
-    //             type: 'numeric',
-    //             range: 10,
-    //             labels: {
-    //                 show: false
-    //             },
-    //             axisBorder: {
-    //                 show: false
-    //             },
-    //             axisTicks: {
-    //                 show: false
-    //             }
-    //         },
-    //         tooltip: {
-    //             enabled: false,
-    //             theme: 'dark'
-    //         }
-    //     }
-    //     // // Criar os gráficos
-    //     this.chartX = new ApexCharts(document.querySelector("#chart-joystick-x"), optionsX);
-    //     this.chartY = new ApexCharts(document.querySelector("#chart-joystick-y"), optionsY);
-        
-    //     this.chartX.render();
-    //     this.chartY.render();
-    // }
 
     updateCharts(xValue, yValue) {
         // Adicionar novos dados
@@ -383,6 +281,8 @@ class ControlGUI {
                 rotuloButtons.forEach(btn => btn.disabled = false);
                 disconectBtn.disabled = false;  
 
+                document.querySelector('.info-block').classList.remove('info-block-active');
+
                 // painel esquerdo
                 document.querySelector('#joystick-readings').classList.add('section-active');
                 document.querySelector('#axis-readings').classList.add('section-active');
@@ -410,6 +310,8 @@ class ControlGUI {
                 rotuloButtons.forEach(btn => btn.disabled = false);
                 disconectBtn.disabled = false;  
 
+                document.querySelector('.info-block').classList.remove('info-block-active');
+
                 // painel esquerdo
                 document.querySelector('#joystick-readings').classList.remove('section-active');
                 document.querySelector('#axis-readings').classList.add('section-active');
@@ -435,6 +337,8 @@ class ControlGUI {
                 homingControlButtons.forEach(btn => btn.disabled = false);
                 rotuloButtons.forEach(btn => btn.disabled = true);
                 document.getElementById('emergency-stop-btn').disabled = true;
+
+                document.querySelector('.info-block').classList.remove('info-block-active');
                 
                 // painel esquerdo
                 document.querySelector('#joystick-readings').classList.remove('section-active');
@@ -459,6 +363,8 @@ class ControlGUI {
                 memoryControlButtons.forEach(btn => btn.disabled = true);
                 rotuloButtons.forEach(btn => btn.disabled = false);
                 homingControlButtons.forEach(btn => btn.disabled = true);
+
+                document.querySelector('.info-block').classList.add('info-block-active');
         }
     }
 
@@ -612,6 +518,7 @@ class ControlGUI {
         if (line.startsWith('DATA,')) {
             try {
                 const parts = line.split(',');
+                //
                 // New format: DATA,x_reading,y_reading,motor0_dir,motor1_dir,motor0_interval,motor1_interval
                 if (parts.length === 7) {
                     const xReading = parseInt(parts[1]);
@@ -682,7 +589,7 @@ class ControlGUI {
                     }
                 }
             } catch (error) {
-                this.addLogEntry(`Position parse error: ${error.message}`, 'error');
+                this.addLogEntry(`Erro ao recuperar posição do motor: ${error.message}`, 'error');
             }
         } else if (line.startsWith('HOMING_STATUS,')) {
             try {
@@ -703,26 +610,6 @@ class ControlGUI {
             } catch (error) {
                 this.addLogEntry(`Homing status parse error: ${error.message}`, 'error');
             }
-        } else if (line.startsWith('SAVED_POSITIONS,')) {
-            // try {
-            //     // Parse saved positions from device
-            //     // Format: SAVED_POSITIONS,char1,x1,y1,char2,x2,y2,...
-            //     const parts = line.split(',');
-            //     this.savedPositions = [];
-
-            //     for (let i = 1; i < parts.length; i += 3) {
-            //         if (i + 2 < parts.length) {
-            //             this.savedPositions.push({
-            //                 character: parts[i],
-            //                 x_position: parseInt(parts[i + 1]),
-            //                 y_position: parseInt(parts[i + 2])
-            //             });
-            //         }
-            //     }
-            //     this.updateSavedPositionsDisplay();
-            // } catch (error) {
-            //     this.addLogEntry(`Saved positions parse error: ${error.message}`, 'error');
-            // }
         } else if (line.startsWith('ACK,') || line.startsWith('ERROR,') || line.startsWith('WARNING,')) {
             const type = line.startsWith('ERROR,') ? 'error' : line.startsWith('WARNING,') ? 'warning' : 'success';
             this.addLogEntry(line, type);
