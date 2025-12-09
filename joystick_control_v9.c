@@ -244,9 +244,7 @@ int main (void) {
 
     while (true) {
         // Processa os dados vindos via serial (dados enviados pela interface)
-        printf('parte 1\n');
         process_uart_input();
-        printf('parte 2\n');
         switch (current_state)
         {
             case STATE_COMMAND:
@@ -264,7 +262,6 @@ int main (void) {
                 break;
         }
 
-        printf('parte 3\n');
         uint32_t time_now = to_ms_since_boot(get_absolute_time());
         if (time_now - last_time >= 1000) {
             last_time = time_now;
@@ -704,7 +701,7 @@ void send_homing_status(void) {
         }
     }
 
-    snprintf(rbuffer + pos, sizeof(rbuffer) - pos, "||");
+    snprintf(rbuffer + pos, sizeof(rbuffer) - pos, "\n");
     printf("MSG 2: %s\n\n", rbuffer);
     uart_puts(UART_ID, rbuffer);
 }
@@ -1206,7 +1203,7 @@ void send_position_update(void) {
         if (pos >= sizeof(rbuffer)) break;
     }
 
-    snprintf(rbuffer + pos, sizeof(rbuffer) - pos, "||");
+    snprintf(rbuffer + pos, sizeof(rbuffer) - pos, "\n");
 
     printf("MSG: %s\n", rbuffer);
     uart_puts(UART_ID, rbuffer);
@@ -1225,7 +1222,7 @@ void send_state_update(void) {
         state_str = "HOMING";
     }
 
-    snprintf(rbuffer, 256, "STATE_STATUS,%s,%d||", state_str, active_motor_count);
+    snprintf(rbuffer, 256, "STATE_STATUS,%s,%d\n", state_str, active_motor_count);
     printf("MSG: %s\n", rbuffer);
     uart_puts(UART_ID, rbuffer);
 }
