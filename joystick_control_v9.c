@@ -1197,7 +1197,7 @@ void send_position_update(void) {
     uint pos = 0;
 
     pos += snprintf(rbuffer + pos, sizeof(rbuffer) - pos, "POSITION");
-    for (uint i = 0; i < 2; i++) {
+    for (uint i = 0; i < active_motor_count; i++) {
         pos += snprintf(rbuffer + pos, sizeof(rbuffer) - pos, ",%d", (int)steppers[i].step_position);
 
         if (pos >= sizeof(rbuffer)) break;
