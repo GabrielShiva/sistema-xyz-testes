@@ -167,6 +167,10 @@ bool home_all_motors(void);
 bool read_limit_switch(stepper_motor_t *motor);
 void init_limit_switches(void);
 
+int jkk = 100;
+int jkk1 = 234;
+int jkk2 = 12;
+
 int main (void) {
     stdio_init_all();
     sleep_ms(2000);
@@ -266,8 +270,21 @@ int main (void) {
         if (time_now - last_time >= 1000) {
             last_time = time_now;
 
-            send_state_update();
+            // send_state_update();
             send_position_update();
+            jkk++;
+            jkk1++;
+            jkk2++;
+
+            if (jkk >= 200) {
+                jkk = 0;
+            }
+            if (jkk1 >= 334) {
+                jkk1 = 0;
+            }
+            if (jkk2 >= 112) {
+                jkk2 = 0;
+            }
             if (current_state == STATE_HOMING) {
                 send_homing_status();
             }
@@ -1197,8 +1214,18 @@ void send_position_update(void) {
     uint pos = 0;
 
     pos += snprintf(rbuffer + pos, sizeof(rbuffer) - pos, "POSITION");
-    for (uint i = 0; i < active_motor_count; i++) {
-        pos += snprintf(rbuffer + pos, sizeof(rbuffer) - pos, ",%d", (int)steppers[i].step_position);
+    for (uint i = 0; i < 3; i++) {
+        if (i == 0) {
+            pos += snprintf(rbuffer + pos, sizeof(rbuffer) - pos, ",%d", jkk);
+        }
+
+        if (i == 1) {
+            pos += snprintf(rbuffer + pos, sizeof(rbuffer) - pos, ",%d", jkk1);
+        }
+
+        if (i == 2) {
+            pos += snprintf(rbuffer + pos, sizeof(rbuffer) - pos, ",%d", jkk2);
+        }
 
         if (pos >= sizeof(rbuffer)) break;
     }
