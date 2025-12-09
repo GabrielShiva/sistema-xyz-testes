@@ -200,12 +200,6 @@ int main (void) {
         init_stepper_motor(&steppers[i]);
     }
 
-    saved_positions[0] = (saved_position_t){ .character = 'a', .x_position = 1906, .y_position = 337, .is_used = true };
-    saved_positions[1] = (saved_position_t){ .character = 'b', .x_position = 1051, .y_position = 1579, .is_used = true };
-    saved_positions[2] = (saved_position_t){ .character = 'c', .x_position = 2818, .y_position = 2109, .is_used = true };
-    saved_positions[3] = (saved_position_t){ .character = 'd', .x_position = 0, .y_position = 2195, .is_used = true };
-    saved_positions[4] = (saved_position_t){ .character = 'e', .x_position = 4147, .y_position = 955, .is_used = true };
-
     // Envia o estado do sistema e a posição atual para a interface (INICIALIZAÇÃO DA INTERFACE)
     // Inicializa a UART para comunicar com a outra placa
     uart_init(UART_ID, UART_BAUD_RATE);
@@ -250,8 +244,9 @@ int main (void) {
 
     while (true) {
         // Processa os dados vindos via serial (dados enviados pela interface)
+        printf('parte 1\n');
         process_uart_input();
-
+        printf('parte 2\n');
         switch (current_state)
         {
             case STATE_COMMAND:
@@ -269,6 +264,7 @@ int main (void) {
                 break;
         }
 
+        printf('parte 3\n');
         uint32_t time_now = to_ms_since_boot(get_absolute_time());
         if (time_now - last_time >= 1000) {
             last_time = time_now;
