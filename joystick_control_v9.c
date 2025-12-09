@@ -252,20 +252,6 @@ int main (void) {
         // Processa os dados vindos via serial (dados enviados pela interface)
         process_uart_input();
 
-        // uint32_t time_now = to_ms_since_boot(get_absolute_time());
-        // if (time_now - last_time >= 1000) {
-        //     last_time = time_now;
-        //     // uart_putc(UART_ID, 'a');
-
-        //     send_state_update();
-        //     send_position_update();
-        //     // if (current_state == STATE_HOMING) {
-        //     //     send_homing_status();
-        //     // }
-        //     // while (true);
-        // }
-
-
         switch (current_state)
         {
             case STATE_COMMAND:
@@ -283,15 +269,18 @@ int main (void) {
                 break;
         }
 
-        // Envia atualizações de estado do sistema
-        // static int position_update_counter = 0;
-        // if (++position_update_counter >= 60) {
-        //     send_position_update();
-        //     send_homing_status();
-        //     position_update_counter = 0;
-        // }
+        uint32_t time_now = to_ms_since_boot(get_absolute_time());
+        if (time_now - last_time >= 1000) {
+            last_time = time_now;
 
-        sleep_ms(10);
+            send_state_update();
+            send_position_update();
+            if (current_state == STATE_HOMING) {
+                send_homing_status();
+            }
+        }
+
+        sleep_ms(25);
     }
 
     return 0;
@@ -719,7 +708,7 @@ void send_homing_status(void) {
         }
     }
 
-    snprintf(rbuffer + pos, sizeof(rbuffer) - pos, "\n");
+    snprintf(rbuffer + pos, sizeof(rbuffer) - pos, "||");
     printf("MSG 2: %s\n\n", rbuffer);
     uart_puts(UART_ID, rbuffer);
 }
@@ -1214,14 +1203,14 @@ void send_position_update(void) {
     char rbuffer[256];
     uint pos = 0;
 
-    pos += snprintf(rbuffer + pos, sizeof(rbuffer) - pos, "POSITION");
-    for (uint i = 0; i < active_motor_count && i < 3; i++) {
-        pos += snprintf(rbuffer + pos, sizeof(rbuffer) - pos, ",%d", (int)steppers[i].step_position);
+    pos += snprintf(rbuffer + pos, sizeof(rbuffer) - pos, "POSITION_STATUS");
+    for (uint i = 0; i < 2; i++) {
+        pos += snprintf(rbuffer + pos, sizeof(rbuffer) - pos, ",%d,%d,%d", (int)steppers[i].step_position, steppers[i].dir, steppers[0].actual_step_interval);
 
         if (pos >= sizeof(rbuffer)) break;
     }
 
-    snprintf(rbuffer + pos, sizeof(rbuffer) - pos, "\n");
+    snprintf(rbuffer + pos, sizeof(rbuffer) - pos, "||");
 
     printf("MSG: %s\n", rbuffer);
     uart_puts(UART_ID, rbuffer);
@@ -1240,7 +1229,7 @@ void send_state_update(void) {
         state_str = "HOMING";
     }
 
-    snprintf(rbuffer, 256, "STATE,%s,%d\n", state_str, active_motor_count);
+    snprintf(rbuffer, 256, "STATE_STATUS,%s,%d||", state_str, active_motor_count);
     printf("MSG: %s\n", rbuffer);
     uart_puts(UART_ID, rbuffer);
 }
