@@ -1196,9 +1196,9 @@ void send_position_update(void) {
     char rbuffer[256];
     uint pos = 0;
 
-    pos += snprintf(rbuffer + pos, sizeof(rbuffer) - pos, "POSITION_STATUS");
+    pos += snprintf(rbuffer + pos, sizeof(rbuffer) - pos, "POSITION");
     for (uint i = 0; i < 2; i++) {
-        pos += snprintf(rbuffer + pos, sizeof(rbuffer) - pos, ",%d,%d,%d", (int)steppers[i].step_position, steppers[i].dir, steppers[0].actual_step_interval);
+        pos += snprintf(rbuffer + pos, sizeof(rbuffer) - pos, ",%d", (int)steppers[i].step_position);
 
         if (pos >= sizeof(rbuffer)) break;
     }
@@ -1222,7 +1222,7 @@ void send_state_update(void) {
         state_str = "HOMING";
     }
 
-    snprintf(rbuffer, 256, "STATE_STATUS,%s,%d\n", state_str, active_motor_count);
+    snprintf(rbuffer, 256, "STATE,%s,%d\n", state_str, active_motor_count);
     printf("MSG: %s\n", rbuffer);
     uart_puts(UART_ID, rbuffer);
 }
