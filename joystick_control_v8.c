@@ -361,6 +361,16 @@ int64_t alarm_irq_handler(alarm_id_t id, void *user_data) {
 
             // Atualiza contadores de posição
             motor->step_count++;
+
+            if (motor->dir == -1 && motor->step_position == 0) {
+                // Se está tentando mover para -1 e já está em 0, para o motor
+                motor->movement_done = true;
+                motor->alarm_active = false;
+                motor->continuous_mode = false;
+                gpio_put(motor->step_pin, 0);
+                return 0; 
+            }
+
             motor->step_position += motor->dir;
 
             // Caso o motor esteja em modo HOMING
@@ -421,6 +431,14 @@ int64_t alarm_irq_handler(alarm_id_t id, void *user_data) {
 
         // Incrementa o contador de passos e atualiza a posição do motor
         motor->step_count++;
+
+        if (motor->dir == -1 && motor->step_position == 0) {
+            // Se está tentando mover para -1 e já está em 0, para o movimento
+            motor->movement_done = true;
+            motor->alarm_active = false;
+            return 0;
+        }
+
         motor->step_position += motor->dir;
 
         // Implementa a aceleração/desaceleração
@@ -743,6 +761,16 @@ void control_motor_from_joystick(stepper_motor_t *motor, uint16_t reading, uint1
             motor->dir = 1;
             gpio_put(motor->dir_pin, 0);
         } else {
+            // Verifica se a posição atual é 0 e a direção desejada é negativa
+            if (motor->step_position <= 0) {
+                // Se já estiver em 0 ou abaixo (embora step_position deva ser >= 0
+                // após as correções) e o movimento for negativo, para/impede o movimento.
+                if (motor->alarm_active) {
+                    stop_motor(motor);
+                }
+                return; // Impede a continuação do controle de velocidade e a inicialização.
+            }
+
             motor->dir = -1;
             gpio_put(motor->dir_pin, 1);
         }
