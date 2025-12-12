@@ -11,7 +11,7 @@ class ControlGUI {
         
         // Estado do sistema de controle
         this.previousState = 'unknown';
-        this.currentState = 'command';
+        this.currentState = 'unknown';
         this.motorCount = 3;
         this.motorPositions = [0, 0, 0];
         this.savedPositions = [];
@@ -507,13 +507,24 @@ class ControlGUI {
             }
         } catch (error) {
             this.addLogEntry(`Erro de leitura: ${error.message}`, 'error');
+
+            this.isConnected = false;
+            this.currentState = 'unknown';
+            this.updateConnectionStatus();
+            this.updateStateStatus();
         } finally {
             this.reader.releaseLock();
+            if (!this.isConnected) {
+                this.addLogEntry('Conexão perdida. Interface redefinida.', 'error');
+            }
         }
     }
 
     processDataLine(line) {
         if (!line) return;
+
+        console.log(line);
+        
 
         if (line.startsWith('DATA,')) {
             try {
@@ -564,7 +575,7 @@ class ControlGUI {
             } catch (error) {
                 this.addLogEntry(`Parse error: ${error.message}`, 'error');
             }
-        } else if (line.startsWith('STATE,')) {
+        } else if (line.startsWith('STATE_STATUS,')) {
             try {
                 const parts = line.split(',');
                 if (parts.length >= 2) {
@@ -577,17 +588,37 @@ class ControlGUI {
             } catch (error) {
                 this.addLogEntry(`Erro de parsing: ${error.message}`, 'error');
             }
-        } else if (line.startsWith('POSITION,')) {
+        } else if (line.startsWith('POSITION_STATUS,')) {
             try {
+                //POSITION_STATUS,<x_pos>,<x_dir>,<x_freq>,<y_pos>,<y_dir>,<y_freq>,<<x_joystick>,<<y_joystick>
                 const parts = line.split(',');
-                // Format: POSITION,motor0_pos,motor1_pos,...
-                for (let i = 1; i < parts.length && i <= this.motorCount; i++) {
-                    this.motorPositions[i - 1] = parseInt(parts[i]);
-                    const posElement = document.getElementById(`motor${i-1}-position`);
-                    if (posElement) {
-                        posElement.textContent = this.motorPositions[i - 1];
-                    }
+
+                if (this.currentState == 'joystick') {
+                    const xJoystick = parseInt(parts[7]);
+                    const yJoystick = parseInt(parts[8]);
+
+                    document.getElementById('joystick-x-value').textContent = xJoystick;
+                    document.getElementById('joystick-y-value').textContent = yJoystick;
                 }
+                
+                // Eixo X
+                this.motorPositions[0] = parseInt(parts[1]);
+                const xDir = parseInt(parts[2]);
+                const xTime = parseInt(parts[3]);
+
+                document.getElementById('motor0-position-value').textContent = this.motorPositions[0];
+                document.getElementById('motor0-dir-value').textContent = xDir;
+                document.getElementById('motor0-speed-value').textContent = xTime;
+               
+
+                // Eixo Y
+                this.motorPositions[1] = parseInt(parts[4]);
+                const yDir = parseInt(parts[5]);
+                const yTime = parseInt(parts[6]);
+
+                document.getElementById('motor1-position-value').textContent = this.motorPositions[1];
+                document.getElementById('motor1-dir-value').textContent = yDir;
+                document.getElementById('motor1-speed-value').textContent = yTime;
             } catch (error) {
                 this.addLogEntry(`Erro ao recuperar posição do motor: ${error.message}`, 'error');
             }

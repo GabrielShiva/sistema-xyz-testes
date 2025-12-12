@@ -156,6 +156,9 @@ bool home_all_motors(void);
 bool read_limit_switch(stepper_motor_t *motor);
 void init_limit_switches(void);
 
+uint16_t x_reading = 0;
+uint16_t y_reading = 0;
+
 int main (void) {
     stdio_init_all();
 
@@ -195,28 +198,21 @@ int main (void) {
         // Processa os dados vindos via serial (dados enviados pela interface)
         process_serial_input();
 
-        switch (current_state) {
-            case STATE_COMMAND || STATE_HOMING:
-                if (command_ready) {
-                    // Executa a função relacionada ao comando
-                    handle_command(command_buffer);
-                    command_buffer_pos = 0;
-                    command_buffer[0] = '\0';
-                    command_ready = false;
-                }
-                break;
-            case STATE_JOYSTICK:
-                joystick_state_handler();
-                break;
-            default:
-                break;
+        if (command_ready) {
+            handle_command(command_buffer);
+            command_buffer_pos = 0;
+            command_buffer[0] = '\0';
+            command_ready = false;
+        }
+
+        if (current_state == STATE_JOYSTICK) {
+            joystick_state_handler();
         }
 
         uint32_t time_now = to_ms_since_boot(get_absolute_time());
         if (time_now - last_time >= 1000) {
             last_time = time_now;
 
-            send_state_update();
             send_position_update();
             if (current_state == STATE_HOMING) {
                 send_homing_status();
@@ -232,9 +228,9 @@ int main (void) {
 void joystick_state_handler() {
     // Realiza a leitura dos eixos x e y
     adc_select_input(JOYSTICK_X_CHANNEL);
-    uint16_t x_reading = adc_read();
+    x_reading = adc_read();
     adc_select_input(JOYSTICK_Y_CHANNEL);
-    uint16_t y_reading = adc_read();
+    y_reading = adc_read();
 
     // Controla o motor 0
     control_motor_from_joystick(&steppers[0], x_reading, joystick_x_center);
@@ -255,21 +251,21 @@ void joystick_state_handler() {
         fabs(steppers[0].actual_step_interval - last_x_interval) > 50.0f ||
         (active_motor_count >= 2 && fabs(steppers[1].actual_step_interval - last_y_interval) > 50.0f)) {
 
-        if (active_motor_count >= 2) {
-            // Envia os dados via serial para o caso de dois motores:
-            // DATA,<x_reading>,<y_reading>,<motor_0_dir>,<motor_1_dir>,<motor_0_speed>,<motor_1_speed>
-            printf("DATA,%u,%u,%d,%d,%.1f,%.1f\n",
-                    x_reading, y_reading,
-                    steppers[0].dir, steppers[1].dir,
-                    steppers[0].actual_step_interval, steppers[1].actual_step_interval);
-        } else {
-            // Envia os dados via serial para o caso de um motores:
-            // DATA,<x_reading>,<y_reading>,<motor_0_dir>,<motor_0_speed>
-            printf("DATA,%u,%u,%d,0,%.1f,0.0\n",
-                    x_reading, y_reading,
-                    steppers[0].dir,
-                    steppers[0].actual_step_interval);
-        }
+        // if (active_motor_count >= 2) {
+        //     // Envia os dados via serial para o caso de dois motores:
+        //     // DATA,<x_reading>,<y_reading>,<motor_0_dir>,<motor_1_dir>,<motor_0_speed>,<motor_1_speed>
+        //     printf("DATA,%u,%u,%d,%d,%.1f,%.1f\n",
+        //             x_reading, y_reading,
+        //             steppers[0].dir, steppers[1].dir,
+        //             steppers[0].actual_step_interval, steppers[1].actual_step_interval);
+        // } else {
+        //     // Envia os dados via serial para o caso de um motores:
+        //     // DATA,<x_reading>,<y_reading>,<motor_0_dir>,<motor_0_speed>
+        //     printf("DATA,%u,%u,%d,0,%.1f,0.0\n",
+        //             x_reading, y_reading,
+        //             steppers[0].dir,
+        //             steppers[0].actual_step_interval);
+        // }
 
         last_x_reading = x_reading;
         last_y_reading = y_reading;
@@ -1161,10 +1157,15 @@ void parse_setzero_command(const char* params) {
 
 // Envia a posição atual dos motores via serial
 void send_position_update(void) {
-    printf("POSITION");
+    printf("POSITION_STATUS");
     for (uint i = 0; i < 2; i++) {
-        printf(",%d,%d", (int)steppers[i].step_position, steppers[i].dir, steppers[0].actual_step_interval);
+        printf(",%d,%d,%d", (int)steppers[i].step_position, (int)steppers[i].dir, (int)steppers[i].actual_step_interval);
     }
+
+    if (current_state == STATE_JOYSTICK) {
+        printf(",%d,%d", x_reading, y_reading);
+    }
+
     printf("\n");
 }
 
@@ -1178,7 +1179,7 @@ void send_state_update(void) {
     } else {
         state_str = "HOMING";
     }
-    printf("STATE,%s,%d\n", state_str, active_motor_count);
+    printf("STATE_STATUS,%s,%d\n", state_str, active_motor_count);
 }
 
 // Para o movimento de todos os motores
